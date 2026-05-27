@@ -172,7 +172,15 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "700px" }}>
             <thead>
               <tr>
-                <th style={thStyle("#0b0f19")}>⏱ Hora</th>
+                <th style={{
+                  ...thStyle("#0b0f19"),
+                  position: "sticky",
+                  left: 0,
+                  zIndex: 20,
+                  background: "#0b0f19",
+                  borderRight: "1px solid rgba(255,255,255,0.08)",
+                  boxShadow: "2px 0 5px rgba(0,0,0,0.3)"
+                }}>⏱ Hora</th>
                 {[1, 2, 3, 4, 5].map((day) => (
                   <th key={day} style={thStyle("rgba(6,182,212,0.06)")}>
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "3px" }}>
@@ -193,7 +201,17 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
                   <tr key={rowIdx} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
                     
                     {/* Caixa de Hora */}
-                    <td style={{ padding: "3px 4px", verticalAlign: "middle", width: "150px" }}>
+                    <td style={{
+                      padding: "3px 4px",
+                      verticalAlign: "middle",
+                      width: "150px",
+                      position: "sticky",
+                      left: 0,
+                      zIndex: 2,
+                      background: "#111928",
+                      borderRight: "1px solid rgba(255,255,255,0.08)",
+                      boxShadow: "2px 0 5px rgba(0,0,0,0.3)"
+                    }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "3px", width: "100%" }}>
                         <input
                           type="time"

@@ -111,6 +111,22 @@ export default function App() {
     }
 
     const userChildrenKey = `schoolsync_children_user_${currentUser.id}`;
+
+    // Copiar dados do John para a Valdenilda se ela for nova e não tiver dados
+    if (currentUser.email === "santanavaldenilda@gmail.com") {
+      const valdenildaKey = userChildrenKey;
+      const hasValdenildaData = localStorage.getItem(valdenildaKey);
+      if (!hasValdenildaData || hasValdenildaData === "undefined" || hasValdenildaData === "null") {
+        const johnUserId = "user-l12johnsilva_gmail_com";
+        const johnKey = `schoolsync_children_user_${johnUserId}`;
+        const johnData = localStorage.getItem(johnKey);
+        if (johnData && johnData !== "undefined" && johnData !== "null") {
+          localStorage.setItem(valdenildaKey, johnData);
+          console.log("SchoolSync: Copiados dados de crianças de l12johnsilva@gmail.com para santanavaldenilda@gmail.com");
+        }
+      }
+    }
+
     let loadedChildren = null;
 
     try {
@@ -142,18 +158,20 @@ export default function App() {
       console.error("Erro ao ler dados de filhos no carregamento:", e);
     }
 
+    const isSpecialUser = currentUser.email === "l12johnsilva@gmail.com" || currentUser.email === "santanavaldenilda@gmail.com";
+
     // 3. Se ainda assim não houver nada, definir o estado inicial
     if (!loadedChildren) {
-      if (currentUser.email === "l12johnsilva@gmail.com") {
+      if (isSpecialUser) {
         loadedChildren = INITIAL_CHILDREN;
       } else {
         loadedChildren = []; // Contas novas de outros utilizadores arrancarão em branco
       }
     }
 
-    // 4. Apenas para o administrador l12johnsilva@gmail.com, sincronizamos os perfis padrão (INITIAL_CHILDREN) com o código
+    // 4. Apenas para os administradores, sincronizamos os perfis padrão (INITIAL_CHILDREN) com o código
     let finalChildren = [...loadedChildren];
-    if (currentUser.email === "l12johnsilva@gmail.com" && finalChildren.length > 0) {
+    if (isSpecialUser && finalChildren.length > 0) {
       INITIAL_CHILDREN.forEach((initialChild) => {
         const index = finalChildren.findIndex((c) => c.id === initialChild.id);
         if (index !== -1) {
