@@ -11,12 +11,27 @@ export default function App() {
       const saved = localStorage.getItem("schoolsync_children");
       if (saved && saved !== "undefined") {
         const parsed = JSON.parse(saved);
-        if (parsed.length > 0) return parsed; // Se houver perfis ativos, mantém
+        if (parsed.length > 0) {
+          // Sincroniza automaticamente os perfis padrão (INITIAL_CHILDREN) com as novidades do código (e.g. novos horários ou temas)
+          // mantendo intactos quaisquer perfis personalizados adicionados manualmente pelo utilizador.
+          const merged = [...parsed];
+          INITIAL_CHILDREN.forEach((initialChild) => {
+            const index = merged.findIndex((c) => c.id === initialChild.id);
+            if (index !== -1) {
+              // Substitui o perfil existente com o mais recente do código (atualiza horários, temas, turmas)
+              merged[index] = initialChild;
+            } else {
+              // Se o perfil padrão não existir (removido acidentalmente), adiciona-o novamente
+              merged.push(initialChild);
+            }
+          });
+          return merged;
+        }
       }
     } catch (e) {
       console.error("Erro ao ler children do localStorage:", e);
     }
-    return INITIAL_CHILDREN; // Se estiver vazio (como no arranque ou após reset), carrega os novos dados reais
+    return INITIAL_CHILDREN; // Se estiver vazio (arranque inicial), carrega os novos dados reais
   });
 
   const [activeChildId, setActiveChildId] = useState(() => {
