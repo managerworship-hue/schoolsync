@@ -3,19 +3,22 @@ import React, { useState } from "react";
 export default function ChildSelector({ childrenList, activeChildId, onSelectChild, onAddChild }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [name, setName] = useState("");
-  const [grade, setGrade] = useState("");
+  const [year, setYear] = useState(""); // Ex: "7"
+  const [classroom, setClassroom] = useState(""); // Ex: "C"
   const [avatar, setAvatar] = useState("👦");
   const [theme, setTheme] = useState("lucas");
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!name || !grade) return;
+    if (!name || !year || !classroom) return;
     
-    // Add child with empty schedule for now (user can add details or we populate a basic default)
+    const formattedGrade = `${year}° ${classroom.trim().toUpperCase()}`; // Ex: "7° C"
+    
+    // Add child with empty schedule for now
     onAddChild({
-      id: name.toLowerCase().replace(/\s+/g, "-"),
+      id: name.toLowerCase().trim().replace(/\s+/g, "-"),
       name,
-      grade,
+      grade: formattedGrade,
       avatar,
       theme,
       schedule: { 1: [], 2: [], 3: [], 4: [], 5: [] }
@@ -23,11 +26,12 @@ export default function ChildSelector({ childrenList, activeChildId, onSelectChi
 
     // Reset form
     setName("");
-    setGrade("");
+    setYear("");
+    setClassroom("");
     setShowAddForm(false);
   };
 
-  const activeChild = childrenList.find(c => c.id === activeChildId) || childrenList[0] || { id: "default", name: "Estudante", grade: "2025/2026", theme: "lucas" };
+  const activeChild = childrenList.find(c => c.id === activeChildId) || childrenList[0] || { id: "default" };
 
   return (
     <div className="glass-panel child-selector-container">
@@ -51,7 +55,7 @@ export default function ChildSelector({ childrenList, activeChildId, onSelectChi
             <span className="avatar-circle">{child.avatar}</span>
             <div className="child-info">
               <span className="child-name">{child.name.split(" ")[0]}</span>
-              <span className="child-grade">{child.grade.split(" - ")[0]}</span>
+              <span className="child-grade">{child.grade}</span>
             </div>
           </button>
         ))}
@@ -76,7 +80,7 @@ export default function ChildSelector({ childrenList, activeChildId, onSelectChi
             
             <form onSubmit={handleSubmit} className="modal-body" style={{ gap: "1rem" }}>
               <div className="form-group">
-                <label className="form-label">Nome Completo</label>
+                <label className="form-label">Nome Completo do Filho</label>
                 <input 
                   type="text" 
                   className="form-input" 
@@ -87,16 +91,33 @@ export default function ChildSelector({ childrenList, activeChildId, onSelectChi
                 />
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Ano Escolar / Turma</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="Ex: 8º Ano - Turma A" 
-                  value={grade} 
-                  onChange={(e) => setGrade(e.target.value)}
-                  required 
-                />
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Ano Escolar (Número)</label>
+                  <input 
+                    type="number"
+                    min="1"
+                    max="12"
+                    className="form-input" 
+                    placeholder="Ex: 7" 
+                    value={year} 
+                    onChange={(e) => setYear(e.target.value)}
+                    required 
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Turma (Letra)</label>
+                  <input 
+                    type="text" 
+                    maxLength="5"
+                    className="form-input" 
+                    placeholder="Ex: C" 
+                    value={classroom} 
+                    onChange={(e) => setClassroom(e.target.value)}
+                    required 
+                  />
+                </div>
               </div>
 
               <div className="form-row">

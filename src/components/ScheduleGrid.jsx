@@ -80,6 +80,21 @@ export default function ScheduleGrid({ activeChild, onSelectClass }) {
     "14:25 - 15:15"
   ];
 
+  if (activeChild.id === "default") {
+    return (
+      <div className="glass-panel schedule-section" style={{ padding: "4rem 1.5rem", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1rem" }}>
+        <span style={{ fontSize: "3.5rem", display: "block", animation: "float 4s ease-in-out infinite" }}>👋</span>
+        <h2 className="gradient-text" style={{ fontSize: "1.6rem", fontWeight: "800", margin: 0 }}>Bem-vindo ao Horário Escolar!</h2>
+        <p style={{ color: "var(--color-text-secondary)", fontSize: "0.95rem", maxWidth: "480px", margin: "0 auto", lineHeight: "1.5" }}>
+          Atualmente não tem nenhum perfil registado. Comece por clicar no botão <strong style={{ color: "var(--color-primary)", fontSize: "1.1rem" }}>＋</strong> no cabeçalho superior para adicionar o perfil do seu filho, indicar o ano escolar e a turma!
+        </p>
+        <div style={{ display: "inline-block", padding: "0.5rem 1rem", background: "rgba(255,255,255,0.02)", borderRadius: "8px", border: "1px dashed var(--color-card-border)", fontSize: "0.8rem", color: "var(--color-text-muted)", marginTop: "1rem" }}>
+          PWA Automática • Otimizado para iOS e Android
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="glass-panel schedule-section" style={{ padding: "1.5rem" }}>
       <div className="schedule-header" style={{ marginBottom: isMobile ? "0.5rem" : "1.2rem" }}>
