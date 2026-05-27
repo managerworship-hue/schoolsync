@@ -417,17 +417,11 @@ h1, h2, h3, h4 {
   font-size: 0.75rem;
 }
 
-/* Painel de Tarefas e Planeador */
+/* Ecrã de Horário em Largura Total */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: 1fr 380px;
+  grid-template-columns: 1fr;
   gap: 1.5rem;
-}
-
-@media (max-width: 1024px) {
-  .dashboard-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .planner-section {
