@@ -4,10 +4,14 @@ export default function ClassModal({ classItem, dayName, onClose }) {
   if (!classItem) return null;
 
   const getTeacherInitials = (name) => {
+    if (!name) return "?";
     const parts = name.replace("Prof.ª ", "").replace("Prof. ", "").split(" ");
-    if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-    return parts[0] ? parts[0][0].toUpperCase() : "P";
+    if (parts.length >= 2 && parts[0] && parts[1]) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    return parts[0] ? parts[0][0].toUpperCase() : "?";
   };
+
+  const hasTeacher = !!classItem.teacher;
+  const hasRoom = !!classItem.room;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -21,7 +25,7 @@ export default function ClassModal({ classItem, dayName, onClose }) {
           <h2 className="modal-subject gradient-text">{classItem.subject}</h2>
           <div className="modal-time-place">
             <span>⏰ {classItem.time}</span>
-            <span>📍 {classItem.room}</span>
+            <span>📍 {hasRoom ? classItem.room : "Sala a definir"}</span>
           </div>
         </div>
 
@@ -30,16 +34,20 @@ export default function ClassModal({ classItem, dayName, onClose }) {
           <div>
             <h4 className="info-section-title">Docente Responsável</h4>
             <div className="teacher-card">
-              <div className="teacher-avatar">
+              <div className="teacher-avatar" style={{ background: hasTeacher ? "var(--color-primary)" : "rgba(255,255,255,0.05)", color: hasTeacher ? "white" : "var(--color-text-muted)" }}>
                 {getTeacherInitials(classItem.teacher)}
               </div>
               <div className="teacher-details">
-                <span className="teacher-name">{classItem.teacher}</span>
-                <span className="teacher-email">
-                  <a href={`mailto:${classItem.email}`} style={{ color: "var(--color-primary)", textDecoration: "none" }}>
-                    {classItem.email}
-                  </a>
+                <span className="teacher-name" style={{ color: hasTeacher ? "var(--color-text-primary)" : "var(--color-text-muted)", fontStyle: hasTeacher ? "normal" : "italic" }}>
+                  {hasTeacher ? classItem.teacher : "Docente a identificar"}
                 </span>
+                {classItem.email && (
+                  <span className="teacher-email">
+                    <a href={`mailto:${classItem.email}`} style={{ color: "var(--color-primary)", textDecoration: "none" }}>
+                      {classItem.email}
+                    </a>
+                  </span>
+                )}
               </div>
             </div>
           </div>
