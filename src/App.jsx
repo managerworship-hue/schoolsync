@@ -155,13 +155,35 @@ export default function App() {
       console.error("Erro ao ler dados de filhos no carregamento:", e);
     }
 
-    // Todos os utilizadores arrancam em branco por defeito
+    // Lógica especial de Sincronização entre lejonzsilva@gmail.com e santanavaldenilda@gmail.com no carregamento
+    const isLejon = currentUser.email === "lejonzsilva@gmail.com";
+    const isValdenilda = currentUser.email === "santanavaldenilda@gmail.com";
+    const isSpecialUser = isLejon || isValdenilda;
+
+    if (isSpecialUser && loadedChildren.length === 0) {
+      const otherUserId = isLejon ? "user-santanavaldenilda_gmail_com" : "user-lejonzsilva_gmail_com";
+      const otherKey = `schoolsync_children_user_${otherUserId}`;
+      try {
+        const otherData = localStorage.getItem(otherKey);
+        if (otherData && otherData !== "undefined" && otherData !== "null") {
+          const parsedOther = JSON.parse(otherData);
+          if (parsedOther && parsedOther.length > 0) {
+            loadedChildren = parsedOther;
+            console.log(`SchoolSync: Copiados dados iniciais de ${isLejon ? "Valdenilda" : "Lejon"} para ${currentUser.email}`);
+          }
+        }
+      } catch (e) {
+        console.error("Erro ao carregar dados sincronizados do parceiro:", e);
+      }
+    }
+
+    // Todos os utilizadores arrancam em branco por defeito (exceto os especiais se houver dados do outro)
     setChildrenList(loadedChildren);
     setActiveChildId(loadedChildren[0]?.id || "");
     setIsLoaded(true);
   }, [currentUser]);
 
-  // Persistir alterações de filhos na chave específica do utilizador ativo
+  // Persistir alterações de filhos na chave específica do utilizador ativo e sincronizar em tempo real
   useEffect(() => {
     if (!currentUser || !isLoaded) return;
 
@@ -169,8 +191,17 @@ export default function App() {
       const userChildrenKey = `schoolsync_children_user_${currentUser.id}`;
       const dataStr = JSON.stringify(childrenList);
       localStorage.setItem(userChildrenKey, dataStr);
+
+      // Sincronização em tempo real entre lejonzsilva@gmail.com e santanavaldenilda@gmail.com
+      if (currentUser.email === "lejonzsilva@gmail.com") {
+        const otherKey = "schoolsync_children_user_user-santanavaldenilda_gmail_com";
+        localStorage.setItem(otherKey, dataStr);
+      } else if (currentUser.email === "santanavaldenilda@gmail.com") {
+        const otherKey = "schoolsync_children_user_user-lejonzsilva_gmail_com";
+        localStorage.setItem(otherKey, dataStr);
+      }
     } catch (e) {
-      console.error("Erro ao gravar dados de filhos no localStorage:", e);
+      console.error("Erro ao gravar e sincronizar dados de filhos no localStorage:", e);
     }
   }, [childrenList, currentUser, isLoaded]);
 
