@@ -102,6 +102,25 @@ export default function App() {
   const [childrenList, setChildrenList] = useState([]);
   const [activeChildId, setActiveChildId] = useState("");
 
+  // Efeito executado uma única vez para limpar todas as chaves antigas e garantir independência
+  useEffect(() => {
+    try {
+      const hasReset = localStorage.getItem("schoolsync_db_reset_v2");
+      if (!hasReset) {
+        // Limpar todas as chaves antigas que começam com schoolsync_children
+        Object.keys(localStorage).forEach((key) => {
+          if (key.startsWith("schoolsync_children")) {
+            localStorage.removeItem(key);
+          }
+        });
+        localStorage.setItem("schoolsync_db_reset_v2", "true");
+        console.log("SchoolSync: Base de dados reiniciada com sucesso para garantir independência total de utilizadores.");
+      }
+    } catch (e) {
+      console.error("Erro ao efetuar reset da base de dados:", e);
+    }
+  }, []);
+
   // Efeito para carregar a lista de filhos sempre que o utilizador ativo mudar
   useEffect(() => {
     if (!currentUser) {
@@ -111,22 +130,6 @@ export default function App() {
     }
 
     const userChildrenKey = `schoolsync_children_user_${currentUser.id}`;
-
-    // Copiar dados do John para a Valdenilda se ela for nova e não tiver dados
-    if (currentUser.email === "santanavaldenilda@gmail.com") {
-      const valdenildaKey = userChildrenKey;
-      const hasValdenildaData = localStorage.getItem(valdenildaKey);
-      if (!hasValdenildaData || hasValdenildaData === "undefined" || hasValdenildaData === "null") {
-        const johnUserId = "user-l12johnsilva_gmail_com";
-        const johnKey = `schoolsync_children_user_${johnUserId}`;
-        const johnData = localStorage.getItem(johnKey);
-        if (johnData && johnData !== "undefined" && johnData !== "null") {
-          localStorage.setItem(valdenildaKey, johnData);
-          console.log("SchoolSync: Copiados dados de crianças de l12johnsilva@gmail.com para santanavaldenilda@gmail.com");
-        }
-      }
-    }
-
     let loadedChildren = null;
 
     try {
@@ -138,29 +141,13 @@ export default function App() {
           loadedChildren = parsed;
         }
       }
-
-      // 2. Se for uma conta nova e não tiver dados, verificar se existem dados legados (migração)
-      if (!loadedChildren) {
-        const legacySaved = localStorage.getItem("schoolsync_children");
-        if (legacySaved && legacySaved !== "undefined") {
-          const parsedLegacy = JSON.parse(legacySaved);
-          if (parsedLegacy.length > 0) {
-            loadedChildren = parsedLegacy;
-            console.log("SchoolSync: Migração de dados anteriores realizada com sucesso!");
-            
-            // Renomear a chave legado para evitar migrações repetidas no futuro
-            localStorage.setItem("schoolsync_children_migrated", legacySaved);
-            localStorage.removeItem("schoolsync_children");
-          }
-        }
-      }
     } catch (e) {
       console.error("Erro ao ler dados de filhos no carregamento:", e);
     }
 
     const isSpecialUser = currentUser.email === "l12johnsilva@gmail.com" || currentUser.email === "santanavaldenilda@gmail.com";
 
-    // 3. Se ainda assim não houver nada, definir o estado inicial
+    // 2. Se ainda assim não houver nada, definir o estado inicial
     if (!loadedChildren) {
       if (isSpecialUser) {
         loadedChildren = INITIAL_CHILDREN;
@@ -169,13 +156,13 @@ export default function App() {
       }
     }
 
-    // 4. Apenas para os administradores, sincronizamos os perfis padrão (INITIAL_CHILDREN) com o código
+    // 3. Apenas para os administradores, sincronizamos os perfis padrão (INITIAL_CHILDREN) se não existirem ainda
     let finalChildren = [...loadedChildren];
     if (isSpecialUser) {
       INITIAL_CHILDREN.forEach((initialChild) => {
         const index = finalChildren.findIndex((c) => c.id === initialChild.id);
         if (index === -1) {
-          // Garante que os perfis padrão estão sempre lá se não existirem ainda
+          // Garante que os perfis padrão estão sempre lá se não existirem ainda no localStorage
           finalChildren.push(initialChild);
         }
       });
