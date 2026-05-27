@@ -264,6 +264,7 @@ export default function App() {
   const [newName, setNewName] = useState("");
   const [newYear, setNewYear] = useState("");
   const [newClassroom, setNewClassroom] = useState("");
+  const [newSchool, setNewSchool] = useState("");
   const [newAvatar, setNewAvatar] = useState("👦");
   const [newTheme, setNewTheme] = useState("lucas");
 
@@ -276,6 +277,7 @@ export default function App() {
       id: newName.toLowerCase().trim().replace(/\s+/g, "-"),
       name: newName,
       grade: formattedGrade,
+      school: newSchool.trim() || "Escola a definir",
       avatar: newAvatar,
       theme: newTheme,
       schedule: { 1: [], 2: [], 3: [], 4: [], 5: [] }
@@ -287,6 +289,7 @@ export default function App() {
     setNewName("");
     setNewYear("");
     setNewClassroom("");
+    setNewSchool("");
     setNewAvatar("👦");
     setNewTheme("lucas");
     setShowAddModal(false);
@@ -504,6 +507,17 @@ export default function App() {
                     required 
                   />
                 </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Nome da Escola</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  placeholder="Ex: Escola Secundária de Esmoriz" 
+                  value={newSchool} 
+                  onChange={(e) => setNewSchool(e.target.value)}
+                />
               </div>
 
               <div className="form-row">

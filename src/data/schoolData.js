@@ -3,6 +3,7 @@ export const INITIAL_CHILDREN = [
     id: "joao-pedro",
     name: "João Pedro",
     grade: "8° C",
+    school: "Escola Básica de Esmoriz",
     avatar: "👨‍🎓",
     theme: "lucas",
     schedule: {
@@ -54,6 +55,7 @@ export const INITIAL_CHILDREN = [
     id: "maria-eduarda",
     name: "Maria Eduarda",
     grade: "11° A",
+    school: "Escola Secundária de Esmoriz",
     avatar: "👩‍🎓",
     theme: "sofia",
     schedule: {

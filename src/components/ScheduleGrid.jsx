@@ -151,6 +151,11 @@ export default function ScheduleGrid({ activeChild, onSelectClass, onOpenImportM
           <p style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)" }}>
             {activeChild.grade} {isWeekend && "• (Modo Fim-de-Semana)"}
           </p>
+          {activeChild.school && (
+            <p style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: "0.15rem", display: "flex", alignItems: "center", gap: "4px" }}>
+              <span>🏫</span> {activeChild.school}
+            </p>
+          )}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
