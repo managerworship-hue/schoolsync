@@ -1,652 +1,339 @@
 import React, { useState } from "react";
 
-// ─── Chave API: variável de ambiente do Render (prioridade máxima) ────────────
-// Se VITE_GEMINI_API_KEY estiver definida no Render, o utilizador nunca vê ecrã de configuração.
-// Caso contrário, usa chave guardada manualmente em localStorage.
-const ENV_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
+// ─── Horários pré-definidos para escolas portuguesas ─────────────────────────
+const DEFAULT_SLOTS = [
+  "08:30 - 09:20",
+  "09:20 - 10:10",
+  "10:30 - 11:20",
+  "11:20 - 12:10",
+  "13:30 - 14:20",
+  "14:20 - 15:10",
+  "15:10 - 16:00",
+  "16:15 - 17:05",
+  "17:05 - 17:55",
+];
 
-const getActiveKey = () =>
-  ENV_API_KEY || localStorage.getItem("schoolsync_gemini_key") || "";
+// ─── Disciplinas comuns (sugestões) ──────────────────────────────────────────
+const COMMON_SUBJECTS = [
+  "Matemática","Português","Inglês","Físico-Química","Ciências Naturais",
+  "História","Geografia","Educação Física","Educação Visual","TIC","Filosofia",
+  "Biologia e Geologia","Química","Física","Francês","Espanhol",
+  "Educação Tecnológica","EMRC","Música","Teatro","EVT","Latim",
+];
 
-// ─── Helper: converte File para base64 ───────────────────────────────────────
-const fileToBase64 = (file) =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(",")[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+const DAYS = ["Seg","Ter","Qua","Qui","Sex"];
+const DAY_FULL = ["Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira"];
 
-// ─── Prompt enviado ao Gemini para extração da tabela ────────────────────────
-const buildPrompt = () => `
-Analise esta imagem de um horário escolar português.
-Extraia EXATAMENTE o horário na estrutura JSON abaixo.
-
-Regras obrigatórias:
-- As chaves "1","2","3","4","5" representam Segunda, Terça, Quarta, Quinta e Sexta-feira.
-- "time" deve ser exatamente no formato "HH:MM - HH:MM" conforme aparece na imagem.
-- "subject" deve ser EXATAMENTE o nome da disciplina como aparece na imagem, sem abreviações e sem parênteses.
-- NÃO inclua intervalos, recreios, almoços ou períodos sem aula.
-- Se um dia não tiver aulas, coloque uma lista vazia [].
-- Responda APENAS com o JSON válido, sem explicações, sem markdown, sem blocos de código.
-
-Formato exato a devolver:
-{"1":[{"time":"08:30 - 09:20","subject":"Matemática"},...],"2":[...],"3":[...],"4":[...],"5":[...]}
-`;
+// ─── Cria grelha vazia ────────────────────────────────────────────────────────
+const emptyGrid = () =>
+  DEFAULT_SLOTS.map((time) => ({
+    time,
+    cells: { 1: "", 2: "", 3: "", 4: "", 5: "" },
+  }));
 
 export default function ImportScheduleModal({ activeChild, onClose, onImportSuccess }) {
-  // Se há chave (env ou localStorage) → começa no upload (passo 2)
-  // Se não há nenhuma → pede chave manual (passo 1)
-  const [step, setStep] = useState(() => (getActiveKey() ? 2 : 1));
+  const [rows, setRows] = useState(emptyGrid);
+  const [activeCell, setActiveCell] = useState(null); // {row, day}
+  const [inputVal, setInputVal]     = useState("");
+  const [showSuggest, setShowSuggest] = useState(false);
 
-  const [apiKeyInput, setApiKeyInput] = useState("");
-  const [showApiKey, setShowApiKey] = useState(false);
-
-  const [dragActive, setDragActive] = useState(false);
-  const [file, setFile] = useState(null);
-  const [imageUrl, setImageUrl] = useState(null);
-  const [analyzeProgress, setAnalyzeProgress] = useState(0);
-  const [analyzeStatus, setAnalyzeStatus] = useState("");
-  const [error, setError] = useState("");
-
-  const [editSchedule, setEditSchedule] = useState(null);
-  const [selectedDay, setSelectedDay] = useState(1);
-
-  // ── Guardar chave manual (fallback quando sem variável de ambiente) ─────────
-  const handleSaveApiKey = () => {
-    const trimmed = apiKeyInput.trim();
-    if (!trimmed || !trimmed.startsWith("AI")) {
-      setError(
-        "Chave API inválida. Deve começar por 'AI'. Obtenha a sua em aistudio.google.com/app/apikey"
-      );
-      return;
-    }
-    localStorage.setItem("schoolsync_gemini_key", trimmed);
-    setError("");
-    setStep(2);
+  // ─── Editar célula ──────────────────────────────────────────────────────────
+  const activateCell = (rowIdx, day) => {
+    setActiveCell({ row: rowIdx, day });
+    setInputVal(rows[rowIdx].cells[day]);
+    setShowSuggest(true);
   };
 
-  const handleChangeApiKey = () => {
-    // Só permite alterar se não existir chave de ambiente
-    if (ENV_API_KEY) return;
-    localStorage.removeItem("schoolsync_gemini_key");
-    setApiKeyInput("");
-    setStep(1);
-  };
-
-  // ── Upload de ficheiro ─────────────────────────────────────────────────────
-  const handleFileSelect = (selectedFile) => {
-    if (!selectedFile) return;
-    setFile(selectedFile);
-    setImageUrl(URL.createObjectURL(selectedFile));
-    setError("");
-    analyzeImage(selectedFile);
-  };
-
-  const handleDrag = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") setDragActive(true);
-    else if (e.type === "dragleave") setDragActive(false);
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files?.[0]) handleFileSelect(e.dataTransfer.files[0]);
-  };
-
-  const handleFileChange = (e) => {
-    if (e.target.files?.[0]) handleFileSelect(e.target.files[0]);
-  };
-
-  // ── Análise com Gemini Vision (com fallback automático entre modelos) ────────
-  // Ordem: gemini-1.5-flash (maior quota gratuita) → gemini-2.0-flash-lite → gemini-2.0-flash
-  const GEMINI_MODELS = [
-    "gemini-1.5-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-2.0-flash",
-  ];
-
-  const callGemini = async (model, key, base64Data, mimeType) => {
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: buildPrompt() }, { inlineData: { mimeType, data: base64Data } }] }],
-          generationConfig: { temperature: 0.1, topK: 1, topP: 1, maxOutputTokens: 4096 },
-        }),
-      }
+  const commitCell = (val) => {
+    if (!activeCell) return;
+    const { row, day } = activeCell;
+    setRows((prev) =>
+      prev.map((r, i) =>
+        i === row ? { ...r, cells: { ...r.cells, [day]: val.trim() } } : r
+      )
     );
-    return resp;
+    setActiveCell(null);
+    setInputVal("");
+    setShowSuggest(false);
   };
 
-  const analyzeImage = async (imageFile) => {
-    setStep(3);
-    setAnalyzeProgress(5);
-    setAnalyzeStatus("A preparar imagem para análise...");
-    setError("");
-
-    try {
-      const base64Data = await fileToBase64(imageFile);
-      setAnalyzeProgress(20);
-      setAnalyzeStatus("A enviar imagem para IA Gemini...");
-
-      const key = getActiveKey();
-      if (!key) {
-        setError("Chave API não encontrada.");
-        setStep(1);
-        return;
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") { commitCell(inputVal); }
+    if (e.key === "Escape") { setActiveCell(null); setShowSuggest(false); }
+    if (e.key === "Tab") {
+      e.preventDefault();
+      commitCell(inputVal);
+      // Avança para próxima célula (mesmo dia, linha seguinte)
+      if (activeCell) {
+        const nextRow = activeCell.row + 1;
+        if (nextRow < rows.length) activateCell(nextRow, activeCell.day);
       }
-
-      const mimeType = imageFile.type || "image/jpeg";
-
-      setAnalyzeProgress(35);
-      setAnalyzeStatus("Gemini a ler a estrutura da tabela de horário...");
-
-      // Tenta cada modelo em sequência até um ter sucesso
-      let response = null;
-      let lastErrMsg = "";
-      for (let i = 0; i < GEMINI_MODELS.length; i++) {
-        const model = GEMINI_MODELS[i];
-        setAnalyzeStatus(`A usar modelo ${model}...`);
-        setAnalyzeProgress(35 + i * 12);
-        try {
-          response = await callGemini(model, key, base64Data, mimeType);
-          if (response.ok) break; // sucesso — sai do loop
-
-          const errData = await response.json().catch(() => ({}));
-          const errMsg = errData?.error?.message || `Erro ${response.status}`;
-
-          if (response.status === 400 && errMsg.toLowerCase().includes("api_key")) {
-            throw new Error("Chave API inválida ou expirada. Verifique a sua chave.");
-          }
-          // 429 ou 503 → tenta próximo modelo
-          lastErrMsg = errMsg;
-          console.warn(`SchoolSync: modelo ${model} falhou (${response.status}), a tentar próximo...`);
-          response = null;
-        } catch (fetchErr) {
-          if (fetchErr.message.includes("Chave API")) throw fetchErr;
-          lastErrMsg = fetchErr.message;
-          response = null;
-        }
-      }
-
-      if (!response || !response.ok) {
-        throw new Error(
-          `Todos os modelos Gemini atingiram o limite de quota. Aguarde alguns minutos e tente de novo. (${lastErrMsg})`
-        );
-      }
-
-      setAnalyzeProgress(75);
-      setAnalyzeStatus("A processar resposta da IA...");
-
-      const data = await response.json();
-
-      setAnalyzeProgress(90);
-      setAnalyzeStatus("A mapear disciplinas e horários extraídos...");
-
-      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      console.log("SchoolSync Gemini — Resposta:", rawText);
-
-      let cleanJson = rawText.trim();
-      const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
-      if (jsonMatch) cleanJson = jsonMatch[0];
-
-      let parsed;
-      try {
-        parsed = JSON.parse(cleanJson);
-      } catch {
-        throw new Error("A IA não devolveu um JSON válido. Tente com uma imagem mais nítida.");
-      }
-
-      const normalized = {};
-      ["1", "2", "3", "4", "5"].forEach((day) => {
-        const dayData = parsed[day] || parsed[parseInt(day)] || [];
-        normalized[day] = Array.isArray(dayData)
-          ? dayData
-              .filter((slot) => slot.subject && slot.subject.trim() !== "")
-              .map((slot, idx) => ({
-                id: `gemini-${day}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
-                subject: slot.subject
-                  .replace(/\(.*?\)/g, "")
-                  .replace(/\[.*?\]/g, "")
-                  .trim(),
-                time: slot.time || "",
-                room: "",
-                teacher: "",
-                email: "",
-              }))
-          : [];
-      });
-
-      const totalClasses = Object.values(normalized).reduce(
-        (sum, arr) => sum + arr.length,
-        0
-      );
-
-      if (totalClasses === 0)
-        throw new Error(
-          "Nenhuma aula detetada na imagem. Certifique-se de que a imagem está nítida e contém uma tabela de horário."
-        );
-
-      setAnalyzeProgress(100);
-      setAnalyzeStatus(`✓ ${totalClasses} aulas extraídas com sucesso!`);
-
-      setTimeout(() => {
-        setEditSchedule(JSON.parse(JSON.stringify(normalized)));
-        setStep(4);
-      }, 600);
-    } catch (err) {
-      console.error("SchoolSync Gemini Error:", err);
-      setError(err.message || "Erro desconhecido ao analisar a imagem.");
-      setStep(2);
     }
   };
 
-  // ── Edição pós-extração ────────────────────────────────────────────────────
-  const handleEditSlot = (day, idx, field, value) => {
-    setEditSchedule((prev) => {
-      const updated = { ...prev };
-      updated[day] = [...(updated[day] || [])];
-      updated[day][idx] = { ...updated[day][idx], [field]: value };
-      return updated;
-    });
-  };
+  // Filtra sugestões pelo que o utilizador está a escrever
+  const suggestions = inputVal.length >= 1
+    ? COMMON_SUBJECTS.filter((s) => s.toLowerCase().includes(inputVal.toLowerCase())).slice(0, 6)
+    : COMMON_SUBJECTS.slice(0, 6);
 
-  const handleDeleteSlot = (day, idx) => {
-    setEditSchedule((prev) => {
-      const updated = { ...prev };
-      updated[day] = updated[day].filter((_, i) => i !== idx);
-      return updated;
-    });
-  };
+  // ─── Adicionar / remover linhas de horário ──────────────────────────────────
+  const addRow = () =>
+    setRows((prev) => [...prev, { time: "", cells: { 1: "", 2: "", 3: "", 4: "", 5: "" } }]);
 
-  const handleAddSlot = (day) => {
-    setEditSchedule((prev) => {
-      const updated = { ...prev };
-      updated[day] = [
-        ...(updated[day] || []),
-        { id: `manual-${day}-${Date.now()}`, subject: "", time: "", room: "", teacher: "", email: "" },
-      ];
-      return updated;
-    });
-  };
+  const removeRow = (idx) =>
+    setRows((prev) => prev.filter((_, i) => i !== idx));
 
-  // ── Confirmar ──────────────────────────────────────────────────────────────
+  // ─── Limpar coluna (dia) ────────────────────────────────────────────────────
+  const clearDay = (day) =>
+    setRows((prev) =>
+      prev.map((r) => ({ ...r, cells: { ...r.cells, [day]: "" } }))
+    );
+
+  // ─── Copiar dia para outro ──────────────────────────────────────────────────
+  const [copyFrom, setCopyFrom] = useState(null);
+
+  // ─── Confirmar ──────────────────────────────────────────────────────────────
   const handleConfirm = () => {
-    if (!editSchedule) return;
-    const filtered = {};
-    let hasAny = false;
-    Object.entries(editSchedule).forEach(([day, slots]) => {
-      filtered[day] = slots.filter((s) => s.subject.trim() !== "");
-      if (filtered[day].length > 0) hasAny = true;
+    const schedule = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+    rows.forEach((row) => {
+      [1, 2, 3, 4, 5].forEach((day) => {
+        const subject = row.cells[day]?.trim();
+        if (subject) {
+          schedule[day].push({
+            id: `manual-${day}-${row.time}-${Math.random().toString(36).substr(2,5)}`,
+            subject,
+            time: row.time,
+            room: "", teacher: "", email: "",
+          });
+        }
+      });
     });
-    if (!hasAny) {
-      alert("Adicione pelo menos uma aula antes de confirmar.");
-      return;
-    }
-    onImportSuccess(activeChild.id, filtered);
+    const total = Object.values(schedule).reduce((s, a) => s + a.length, 0);
+    if (total === 0) { alert("Preencha pelo menos uma célula antes de confirmar."); return; }
+    onImportSuccess(activeChild.id, schedule);
     onClose();
   };
 
-  const DAY_NAMES = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira"];
-  const DAY_SHORT = ["Seg", "Ter", "Qua", "Qui", "Sex"];
-
-  const totalExtracted = editSchedule
-    ? Object.values(editSchedule).reduce(
-        (sum, arr) => sum + arr.filter((s) => s.subject?.trim()).length,
-        0
-      )
-    : 0;
+  const totalFilled = rows.reduce(
+    (s, r) => s + Object.values(r.cells).filter((v) => v.trim()).length, 0
+  );
 
   // ══════════════════════════════════════════════════════════════════════════
   return (
-    <div className="modal-overlay" style={{ zIndex: 999999 }}>
+    <div className="modal-overlay" style={{ zIndex: 999999 }} onClick={() => { if (activeCell) commitCell(inputVal); }}>
       <div
         className="glass-panel modal-content"
-        style={{
-          maxWidth: step === 4 ? "780px" : "520px",
-          padding: "1.5rem",
-          transition: "max-width 0.3s ease",
-        }}
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: "720px", padding: "1.2rem 1.3rem", width: "98vw" }}
       >
         <button className="modal-close" onClick={onClose}>×</button>
 
-        {/* ═══ PASSO 1: CHAVE API MANUAL (apenas quando não há variável de ambiente) ═══ */}
-        {step === 1 && (
-          <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "2.5rem", marginBottom: "0.5rem" }}>🔑</div>
-              <h3 className="gradient-text" style={{ fontSize: "1.3rem", margin: 0 }}>
-                Configurar IA de Importação
-              </h3>
-              <p style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)", marginTop: "0.3rem", lineHeight: "1.5" }}>
-                Para ler prints automaticamente, a aplicação utiliza a IA Gemini da Google (gratuito).
-                A sua chave é guardada apenas no seu telemóvel.
-              </p>
-            </div>
+        {/* Cabeçalho */}
+        <div style={{ marginBottom: "0.9rem" }}>
+          <h3 className="gradient-text" style={{ fontSize: "1.15rem", margin: 0 }}>
+            📅 Horário de {activeChild.name}
+          </h3>
+          <p style={{ fontSize: "0.75rem", color: "var(--color-text-secondary)", marginTop: "0.2rem" }}>
+            Clique numa célula e escreva a disciplina. Use <kbd style={{ background: "rgba(255,255,255,0.08)", borderRadius: "3px", padding: "1px 5px", fontSize: "0.65rem" }}>Tab</kbd> para avançar, <kbd style={{ background: "rgba(255,255,255,0.08)", borderRadius: "3px", padding: "1px 5px", fontSize: "0.65rem" }}>Enter</kbd> para confirmar.
+          </p>
+        </div>
 
-            <div style={{
-              background: "rgba(6, 182, 212, 0.05)",
-              border: "1px solid rgba(6, 182, 212, 0.15)",
-              borderRadius: "var(--radius-md)",
-              padding: "0.85rem 1rem",
-              fontSize: "0.78rem",
-              lineHeight: "1.6",
-              color: "var(--color-text-secondary)",
-            }}>
-              <strong style={{ color: "var(--color-primary)", display: "block", marginBottom: "0.3rem" }}>
-                Como obter a chave gratuita (30 segundos):
-              </strong>
-              <ol style={{ margin: 0, paddingLeft: "1.2rem", display: "flex", flexDirection: "column", gap: "0.2rem" }}>
-                <li>Aceda a <strong style={{ color: "var(--color-text-primary)" }}>aistudio.google.com/app/apikey</strong></li>
-                <li>Clique em <strong style={{ color: "var(--color-text-primary)" }}>"Criar chave de API"</strong></li>
-                <li>Copie a chave (começa por "AI...")</li>
-                <li>Cole abaixo e clique em Guardar</li>
-              </ol>
-            </div>
+        {/* Grelha */}
+        <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "62vh" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "480px" }}>
+            <thead>
+              <tr>
+                <th style={thStyle("#0b0f19")}>⏱ Hora</th>
+                {[1,2,3,4,5].map((day) => (
+                  <th key={day} style={thStyle("rgba(6,182,212,0.06)")}>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "3px" }}>
+                      <span style={{ fontWeight: "700", fontSize: "0.75rem" }}>{DAYS[day-1]}</span>
+                      <button
+                        type="button"
+                        onClick={() => clearDay(day)}
+                        title={`Limpar ${DAY_FULL[day-1]}`}
+                        style={{ background: "rgba(239,68,68,0.07)", border: "none", color: "#f87171", borderRadius: "3px", padding: "1px 5px", fontSize: "0.58rem", cursor: "pointer", lineHeight: 1.4 }}
+                      >
+                        limpar
+                      </button>
+                    </div>
+                  </th>
+                ))}
+                <th style={thStyle("#0b0f19")} />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, rowIdx) => (
+                <tr key={rowIdx} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
 
-            {error && (
-              <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--radius-md)", padding: "0.65rem 0.9rem", fontSize: "0.78rem", color: "#f87171" }}>
-                {error}
-              </div>
-            )}
-
-            <div className="form-group">
-              <label className="form-label">Chave API Gemini (Google AI Studio)</label>
-              <div style={{ position: "relative" }}>
-                <input
-                  type={showApiKey ? "text" : "password"}
-                  className="form-input"
-                  placeholder="AIza..."
-                  value={apiKeyInput}
-                  onChange={(e) => setApiKeyInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSaveApiKey()}
-                  style={{ paddingRight: "3rem" }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowApiKey(!showApiKey)}
-                  style={{ position: "absolute", right: "0.6rem", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "var(--color-text-muted)", cursor: "pointer", fontSize: "1rem" }}
-                >
-                  {showApiKey ? "🙈" : "👁️"}
-                </button>
-              </div>
-            </div>
-
-            <button type="button" className="btn-primary" onClick={handleSaveApiKey} style={{ width: "100%", padding: "0.75rem", fontWeight: "700" }}>
-              Guardar e Continuar →
-            </button>
-
-            <p style={{ fontSize: "0.7rem", color: "var(--color-text-muted)", textAlign: "center", margin: 0 }}>
-              🔒 Guardada apenas neste telemóvel. Nunca partilhada com terceiros.
-            </p>
-          </div>
-        )}
-
-        {/* ═══ PASSO 2: UPLOAD DO PRINT ══════════════════════════════════════ */}
-        {step === 2 && (
-          <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
-            <div style={{ textAlign: "center" }}>
-              <h3 className="gradient-text" style={{ fontSize: "1.3rem" }}>
-                📤 Importar Horário de {activeChild.name}
-              </h3>
-              <p style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)", marginTop: "0.2rem" }}>
-                Carregue um print ou foto do horário escolar. A IA Gemini extrai automaticamente todas as disciplinas e horários.
-              </p>
-            </div>
-
-            {error && (
-              <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--radius-md)", padding: "0.65rem 0.9rem", fontSize: "0.78rem", color: "#f87171", lineHeight: "1.5" }}>
-                ⚠️ {error}
-                {!ENV_API_KEY && (
-                  <button
-                    type="button"
-                    onClick={handleChangeApiKey}
-                    style={{ display: "block", marginTop: "0.4rem", background: "none", border: "none", color: "#93c5fd", cursor: "pointer", fontSize: "0.75rem", textDecoration: "underline", padding: 0 }}
-                  >
-                    Alterar chave API
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Drop Zone */}
-            <div
-              onDragEnter={handleDrag}
-              onDragOver={handleDrag}
-              onDragLeave={handleDrag}
-              onDrop={handleDrop}
-              onClick={() => document.getElementById("file-upload-gemini").click()}
-              style={{
-                border: `2px dashed ${dragActive ? "var(--color-primary)" : "rgba(255,255,255,0.12)"}`,
-                borderRadius: "var(--radius-lg)",
-                padding: "3rem 1.5rem",
-                textAlign: "center",
-                background: dragActive ? "rgba(6,182,212,0.04)" : "rgba(255,255,255,0.005)",
-                cursor: "pointer",
-                transition: "var(--transition-smooth)",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: "1rem",
-              }}
-            >
-              <input
-                id="file-upload-gemini"
-                type="file"
-                accept="image/*"
-                onChange={handleFileChange}
-                style={{ display: "none" }}
-              />
-              <div style={{ fontSize: "2.5rem" }}>🤖</div>
-              <div>
-                <p style={{ fontSize: "0.9rem", fontWeight: "600", color: "var(--color-text-primary)" }}>
-                  {dragActive ? "Solte o print aqui..." : "Arraste o print ou toque para selecionar"}
-                </p>
-                <p style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
-                  PNG, JPG ou JPEG — A IA lê a tabela e extrai tudo automaticamente
-                </p>
-              </div>
-            </div>
-
-            {/* Badge de estado da API */}
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.55rem 0.85rem", background: "rgba(16,185,129,0.05)", border: "1px solid rgba(16,185,129,0.12)", borderRadius: "var(--radius-md)", fontSize: "0.73rem", color: "var(--color-text-secondary)" }}>
-              <span style={{ fontSize: "0.9rem" }}>✅</span>
-              <span>
-                {ENV_API_KEY
-                  ? <><strong style={{ color: "#10b981" }}>IA Gemini ativa.</strong> Carregue o print para analisar automaticamente.</>
-                  : <><strong style={{ color: "#10b981" }}>Chave API configurada.</strong> Carregue o print para analisar.</>
-                }
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* ═══ PASSO 3: ANÁLISE EM CURSO ═════════════════════════════════════ */}
-        {step === 3 && (
-          <div
-            className="animate-fade-in"
-            style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "1.5rem", padding: "2rem 0", textAlign: "center" }}
-          >
-            <style>{`
-              @keyframes pulsateGlow {
-                0%, 100% { box-shadow: 0 0 20px rgba(6,182,212,0.15); }
-                50% { box-shadow: 0 0 45px rgba(6,182,212,0.35), 0 0 70px rgba(6,182,212,0.1); }
-              }
-            `}</style>
-
-            <div style={{
-              width: "110px", height: "110px", borderRadius: "50%",
-              background: "rgba(6,182,212,0.06)", border: "2px solid rgba(6,182,212,0.2)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              animation: "pulsateGlow 2s ease-in-out infinite",
-            }}>
-              <span style={{ fontSize: "3rem" }}>🤖</span>
-            </div>
-
-            <div>
-              <h4 style={{ fontSize: "1.1rem", fontWeight: "700", marginBottom: "0.2rem" }}>
-                Gemini IA a ler o horário...
-              </h4>
-              <p style={{ fontSize: "0.78rem", color: "var(--color-text-secondary)", lineHeight: "1.5" }}>
-                A IA está a analisar a estrutura da tabela e a extrair cada disciplina e horário exatamente como aparecem no print.
-              </p>
-            </div>
-
-            <div style={{ width: "100%", background: "rgba(255,255,255,0.04)", height: "8px", borderRadius: "4px", overflow: "hidden", border: "1px solid rgba(255,255,255,0.05)" }}>
-              <div style={{ height: "100%", width: `${analyzeProgress}%`, background: "linear-gradient(90deg,#06b6d4,#10b981)", borderRadius: "4px", transition: "width 0.4s ease-out" }} />
-            </div>
-
-            <p style={{ fontSize: "0.82rem", color: "var(--color-text-primary)", fontWeight: "500" }}>
-              {analyzeStatus} <strong style={{ color: "#10b981" }}>{analyzeProgress}%</strong>
-            </p>
-
-            {imageUrl && (
-              <div style={{ width: "72px", height: "72px", borderRadius: "8px", overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)", opacity: 0.6 }}>
-                <img src={imageUrl} alt="Print" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ═══ PASSO 4: REVISÃO E CONFIRMAÇÃO ════════════════════════════════ */}
-        {step === 4 && editSchedule && (
-          <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "0.9rem" }}>
-
-            {/* Cabeçalho de sucesso */}
-            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: "var(--radius-md)", padding: "0.7rem 1rem" }}>
-              <span style={{ fontSize: "1.4rem" }}>✅</span>
-              <div>
-                <p style={{ margin: 0, fontWeight: "700", fontSize: "0.9rem", color: "#10b981" }}>
-                  {totalExtracted} aulas extraídas pela IA Gemini
-                </p>
-                <p style={{ margin: 0, fontSize: "0.73rem", color: "var(--color-text-muted)" }}>
-                  Verifique abaixo. Pode editar ou remover qualquer aula antes de confirmar.
-                </p>
-              </div>
-            </div>
-
-            {/* Layout: imagem + grelha */}
-            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-
-              {/* Imagem do print */}
-              {imageUrl && (
-                <div style={{ flex: "0 0 155px" }}>
-                  <p style={{ fontSize: "0.68rem", fontWeight: "700", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>Print Original:</p>
-                  <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: "var(--radius-md)", border: "1px solid rgba(255,255,255,0.06)", overflow: "hidden", height: "310px", display: "flex", alignItems: "center", justifyContent: "center", padding: "4px" }}>
-                    <img
-                      src={imageUrl}
-                      alt="Print"
-                      style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: "4px", cursor: "zoom-in", transition: "transform 0.2s" }}
-                      onClick={(e) => {
-                        e.target.style.transform = e.target.style.transform === "scale(2.2)" ? "scale(1)" : "scale(2.2)";
+                  {/* Hora */}
+                  <td style={{ padding: "3px 4px", verticalAlign: "middle", minWidth: "115px" }}>
+                    <input
+                      type="text"
+                      value={row.time}
+                      onChange={(e) =>
+                        setRows((prev) => prev.map((r, i) => i === rowIdx ? { ...r, time: e.target.value } : r))
+                      }
+                      placeholder="08:30 - 09:20"
+                      style={{
+                        width: "100%", fontSize: "0.68rem", background: "rgba(0,0,0,0.2)",
+                        border: "1px solid rgba(255,255,255,0.06)", color: "var(--color-text-secondary)",
+                        borderRadius: "4px", padding: "4px 5px", textAlign: "center", outline: "none",
+                        fontFamily: "monospace",
                       }}
                     />
-                  </div>
-                </div>
-              )}
+                  </td>
 
-              {/* Grelha por dia */}
-              <div style={{ flex: "1 1 280px", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-
-                {/* Tabs dos dias */}
-                <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
-                  {[1, 2, 3, 4, 5].map((day) => {
-                    const count = (editSchedule[day] || []).filter((s) => s.subject?.trim()).length;
-                    const active = selectedDay === day;
+                  {/* Células de disciplina */}
+                  {[1,2,3,4,5].map((day) => {
+                    const isActive = activeCell?.row === rowIdx && activeCell?.day === day;
+                    const val = row.cells[day];
                     return (
-                      <button key={day} type="button" onClick={() => setSelectedDay(day)} style={{
-                        padding: "4px 10px", borderRadius: "20px", border: "1px solid",
-                        borderColor: active ? "var(--color-primary)" : "rgba(255,255,255,0.08)",
-                        background: active ? "rgba(6,182,212,0.12)" : "transparent",
-                        color: active ? "var(--color-primary)" : "var(--color-text-secondary)",
-                        fontSize: "0.72rem", fontWeight: active ? "700" : "500",
-                        cursor: "pointer", transition: "all 0.15s", display: "flex", alignItems: "center", gap: "4px",
-                      }}>
-                        {DAY_SHORT[day - 1]}
-                        {count > 0 && (
-                          <span style={{ background: active ? "var(--color-primary)" : "rgba(255,255,255,0.1)", color: active ? "#0b0f19" : "var(--color-text-muted)", borderRadius: "10px", padding: "0 5px", fontSize: "0.62rem", fontWeight: "700" }}>
-                            {count}
-                          </span>
+                      <td key={day} style={{ padding: "3px", verticalAlign: "middle", position: "relative" }}>
+                        {isActive ? (
+                          <div style={{ position: "relative" }}>
+                            <input
+                              autoFocus
+                              type="text"
+                              value={inputVal}
+                              onChange={(e) => { setInputVal(e.target.value); setShowSuggest(true); }}
+                              onKeyDown={handleKeyDown}
+                              onBlur={() => setTimeout(() => { commitCell(inputVal); }, 150)}
+                              style={{
+                                width: "100%", fontSize: "0.78rem", fontWeight: "700",
+                                background: "rgba(6,182,212,0.12)", border: "1.5px solid var(--color-primary)",
+                                color: "var(--color-text-primary)", borderRadius: "5px",
+                                padding: "5px 6px", outline: "none", boxSizing: "border-box",
+                              }}
+                            />
+                            {showSuggest && suggestions.length > 0 && (
+                              <div style={{
+                                position: "absolute", top: "100%", left: 0, zIndex: 1000,
+                                background: "var(--color-surface)", border: "1px solid rgba(255,255,255,0.1)",
+                                borderRadius: "6px", boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+                                minWidth: "160px", overflow: "hidden",
+                              }}>
+                                {suggestions.map((s) => (
+                                  <div
+                                    key={s}
+                                    onMouseDown={() => { setInputVal(s); commitCell(s); }}
+                                    style={{
+                                      padding: "7px 10px", fontSize: "0.75rem", cursor: "pointer",
+                                      color: "var(--color-text-primary)", transition: "background 0.1s",
+                                      borderBottom: "1px solid rgba(255,255,255,0.03)",
+                                    }}
+                                    onMouseEnter={(e) => e.target.style.background = "rgba(6,182,212,0.1)"}
+                                    onMouseLeave={(e) => e.target.style.background = "transparent"}
+                                  >
+                                    {s}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div
+                            onClick={() => activateCell(rowIdx, day)}
+                            style={{
+                              minHeight: "32px", padding: "5px 6px", borderRadius: "5px",
+                              background: val ? "rgba(6,182,212,0.06)" : "rgba(255,255,255,0.015)",
+                              border: `1px solid ${val ? "rgba(6,182,212,0.18)" : "rgba(255,255,255,0.05)"}`,
+                              cursor: "text", fontSize: "0.75rem", fontWeight: val ? "600" : "400",
+                              color: val ? "var(--color-text-primary)" : "var(--color-text-muted)",
+                              transition: "all 0.12s", display: "flex", alignItems: "center",
+                              justifyContent: "center", textAlign: "center", lineHeight: 1.2,
+                            }}
+                            onMouseEnter={(e) => { if (!val) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+                            onMouseLeave={(e) => { if (!val) e.currentTarget.style.background = "rgba(255,255,255,0.015)"; }}
+                          >
+                            {val || <span style={{ fontSize: "0.65rem", opacity: 0.3 }}>—</span>}
+                          </div>
                         )}
-                      </button>
+                      </td>
                     );
                   })}
-                </div>
 
-                <p style={{ fontSize: "0.72rem", fontWeight: "700", color: "var(--color-text-secondary)", margin: 0 }}>
-                  {DAY_NAMES[selectedDay - 1]}
-                </p>
+                  {/* Botão remover linha */}
+                  <td style={{ padding: "3px 4px", verticalAlign: "middle" }}>
+                    <button
+                      type="button"
+                      onClick={() => removeRow(rowIdx)}
+                      style={{ background: "none", border: "none", color: "rgba(239,68,68,0.5)", cursor: "pointer", fontSize: "0.8rem", padding: "2px 4px", lineHeight: 1 }}
+                      title="Remover linha"
+                    >×</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
-                <div style={{ maxHeight: "275px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-                  {(editSchedule[selectedDay] || []).length === 0 ? (
-                    <p style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", textAlign: "center", padding: "1.5rem 0" }}>
-                      Sem aulas neste dia
-                    </p>
-                  ) : (
-                    editSchedule[selectedDay].map((slot, idx) => (
-                      <div key={slot.id || idx} style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: "6px", padding: "5px 8px" }}>
-                        <input
-                          type="text"
-                          value={slot.time}
-                          onChange={(e) => handleEditSlot(String(selectedDay), idx, "time", e.target.value)}
-                          placeholder="08:30 - 09:20"
-                          style={{ width: "105px", fontSize: "0.68rem", background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.05)", color: "var(--color-text-secondary)", borderRadius: "4px", padding: "3px 4px", textAlign: "center", outline: "none" }}
-                        />
-                        <input
-                          type="text"
-                          value={slot.subject}
-                          onChange={(e) => handleEditSlot(String(selectedDay), idx, "subject", e.target.value)}
-                          placeholder="Disciplina"
-                          style={{ flex: 1, fontSize: "0.78rem", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", color: "var(--color-text-primary)", borderRadius: "4px", padding: "3px 6px", fontWeight: "600", outline: "none" }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteSlot(String(selectedDay), idx)}
-                          style={{ background: "rgba(239,68,68,0.08)", border: "none", color: "#f87171", borderRadius: "4px", padding: "3px 6px", cursor: "pointer", fontSize: "0.68rem" }}
-                          title="Remover"
-                        >🗑️</button>
-                      </div>
-                    ))
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => handleAddSlot(String(selectedDay))}
-                    style={{ background: "transparent", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: "6px", color: "var(--color-text-muted)", fontSize: "0.72rem", padding: "5px", cursor: "pointer", width: "100%", marginTop: "0.2rem" }}
-                  >
-                    ＋ Adicionar aula
-                  </button>
-                </div>
-              </div>
-            </div>
+        {/* Adicionar linha + chips de disciplinas rápidas */}
+        <div style={{ marginTop: "0.6rem", display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+          <button type="button" onClick={addRow} style={{
+            background: "transparent", border: "1px dashed rgba(255,255,255,0.1)",
+            borderRadius: "6px", color: "var(--color-text-muted)", fontSize: "0.73rem",
+            padding: "5px", cursor: "pointer", width: "100%",
+          }}>
+            ＋ Adicionar linha de horário
+          </button>
 
-            {/* Ações */}
-            <div style={{ display: "flex", gap: "0.75rem", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: "0.7rem" }}>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => { setStep(2); setFile(null); setImageUrl(null); setEditSchedule(null); setError(""); }}
-                style={{ flex: 1, padding: "0.6rem" }}
-              >
-                Importar Outro Print
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={handleConfirm}
-                style={{ flex: 2, padding: "0.6rem", fontWeight: "700" }}
-              >
-                ✓ Aplicar Horário na Agenda
-              </button>
+          {/* Chips de disciplinas rápidas */}
+          <div>
+            <p style={{ fontSize: "0.65rem", color: "var(--color-text-muted)", marginBottom: "0.3rem", fontWeight: "600" }}>
+              SUGESTÕES RÁPIDAS — clique numa célula e depois toque numa disciplina:
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem" }}>
+              {COMMON_SUBJECTS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => { if (activeCell) { setInputVal(s); commitCell(s); } }}
+                  style={{
+                    padding: "3px 9px", borderRadius: "12px", fontSize: "0.67rem", cursor: "pointer",
+                    background: activeCell ? "rgba(6,182,212,0.08)" : "rgba(255,255,255,0.03)",
+                    border: `1px solid ${activeCell ? "rgba(6,182,212,0.2)" : "rgba(255,255,255,0.06)"}`,
+                    color: activeCell ? "var(--color-primary)" : "var(--color-text-muted)",
+                    transition: "all 0.12s",
+                  }}
+                >
+                  {s}
+                </button>
+              ))}
             </div>
           </div>
-        )}
+        </div>
+
+        {/* Rodapé */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.8rem", marginTop: "0.8rem", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: "0.7rem" }}>
+          <div style={{ flex: 1, fontSize: "0.73rem", color: "var(--color-text-muted)" }}>
+            {totalFilled > 0
+              ? <span style={{ color: "#10b981", fontWeight: "600" }}>✓ {totalFilled} aula{totalFilled !== 1 ? "s" : ""} preenchida{totalFilled !== 1 ? "s" : ""}</span>
+              : <span>Nenhuma aula preenchida ainda</span>
+            }
+          </div>
+          <button type="button" className="btn-secondary" onClick={onClose} style={{ padding: "0.5rem 1rem" }}>
+            Cancelar
+          </button>
+          <button type="button" className="btn-primary" onClick={handleConfirm} style={{ padding: "0.5rem 1.2rem", fontWeight: "700" }} disabled={totalFilled === 0}>
+            ✓ Aplicar Horário
+          </button>
+        </div>
       </div>
     </div>
   );
 }
+
+// ─── Estilo base de cabeçalho da tabela ──────────────────────────────────────
+const thStyle = (bg) => ({
+  padding: "6px 5px",
+  background: bg,
+  fontSize: "0.7rem",
+  fontWeight: "700",
+  color: "var(--color-text-secondary)",
+  textAlign: "center",
+  position: "sticky",
+  top: 0,
+  zIndex: 10,
+  borderBottom: "1px solid rgba(255,255,255,0.06)",
+});

@@ -1,4 +1,4 @@
-const CACHE_NAME = "schoolsync-cache-v22";
+const CACHE_NAME = "schoolsync-cache-v24";
 const PRECACHE_ASSETS = [
   "/",
   "/index.html",
