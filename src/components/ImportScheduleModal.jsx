@@ -7,13 +7,24 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
   const [scanProgress, setScanProgress] = useState(0);
   const [scanStatus, setScanStatus] = useState("A inicializar motor de IA...");
   const [generatedSchedule, setGeneratedSchedule] = useState(null);
-  const [startHour, setStartHour] = useState("08:00");
+  const [startHour, setStartHour] = useState("08:30");
 
-  // Novos estados para o OCR real e interatividade
+  // Estados para o OCR e o assistente de "Pintar Grelha"
   const [tesseractLoaded, setTesseractLoaded] = useState(false);
   const [detectedWords, setDetectedWords] = useState([]);
   const [imageUrl, setImageUrl] = useState(null);
-  const [focusedInput, setFocusedInput] = useState(null);
+  const [cycle, setCycle] = useState(() => {
+    let gradeNumber = 7;
+    const match = activeChild.grade.match(/(\d+)/);
+    if (match) {
+      gradeNumber = parseInt(match[1], 10);
+    }
+    return gradeNumber <= 9 ? "basico" : "secundario";
+  });
+  
+  // Pincel ativo para "pintar" as disciplinas na grelha
+  const [activeBrush, setActiveBrush] = useState("Matemática");
+  const [customBrushText, setCustomBrushText] = useState("");
 
   // Carregar o Tesseract.js a partir do CDN de forma assíncrona
   useEffect(() => {
@@ -35,43 +46,89 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
     document.body.appendChild(script);
   }, []);
 
-  // Slots horários padrão em Portugal baseados na hora de início selecionada
-  const getSlotTime = (index, startHr) => {
-    const slotsMap = {
-      "08:00": ["08:00 - 09:00", "09:00 - 10:00", "10:00 - 11:00", "11:00 - 12:00", "12:00 - 13:00", "13:30 - 14:30", "14:30 - 15:30", "15:30 - 16:30", "16:30 - 17:30"],
-      "08:15": ["08:15 - 09:15", "09:15 - 10:15", "10:15 - 11:15", "11:15 - 12:15", "12:15 - 13:15", "13:45 - 14:45", "14:45 - 15:45", "15:45 - 16:45", "16:45 - 17:45"],
-      "08:30": ["08:30 - 09:30", "09:30 - 10:30", "10:30 - 11:30", "11:30 - 12:30", "12:30 - 13:30", "14:00 - 15:00", "15:00 - 16:00", "16:00 - 17:00", "17:00 - 18:00"],
-      "09:00": ["09:00 - 10:00", "10:00 - 11:00", "11:00 - 12:00", "12:00 - 13:00", "13:00 - 14:00", "14:30 - 15:30", "15:30 - 16:30", "16:30 - 17:30", "17:30 - 18:30"]
+  // Inicializar grelha em branco estruturada e alinhada
+  const initializeBlankGrid = (selectedCycle, startHr) => {
+    const basicoHours = ["08:30 - 09:20", "09:25 - 10:15", "10:30 - 11:20", "11:25 - 12:15", "12:25 - 13:15", "13:30 - 14:20", "14:25 - 15:15"];
+    const secundarioHours = ["08:30 - 10:00", "10:15 - 11:45", "12:00 - 13:30", "13:45 - 15:15", "15:30 - 17:00"];
+    
+    const adjustHours = (hoursList, start) => {
+      if (start === "08:30") return hoursList;
+      
+      const parseMin = (s) => {
+        const [h, m] = s.split(":").map(Number);
+        return h * 60 + m;
+      };
+      
+      const formatMin = (m) => {
+        const h = Math.floor(m / 60) % 24;
+        const min = m % 60;
+        return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+      };
+      
+      const originalStart = parseMin(hoursList[0].split(" - ")[0]);
+      const targetStart = parseMin(start);
+      const diff = targetStart - originalStart;
+      
+      return hoursList.map(slot => {
+        const [s, e] = slot.split(" - ");
+        return `${formatMin(parseMin(s) + diff)} - ${formatMin(parseMin(e) + diff)}`;
+      });
     };
-    const list = slotsMap[startHr] || slotsMap["08:00"];
-    return list[index] || list[list.length - 1];
+
+    const finalHours = adjustHours(selectedCycle === "basico" ? basicoHours : secundarioHours, startHr);
+    
+    const blank = {};
+    for (let day = 1; day <= 5; day++) {
+      blank[day] = finalHours.map((time, idx) => ({
+        id: `cell-${day}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
+        subject: "",
+        time: time,
+        room: "",
+        teacher: "",
+        email: ""
+      }));
+    }
+    return blank;
   };
 
-  // OCR Real com fallback para simulação
+  // Trigger automático ao entrar no Passo 3 ou mudar o ciclo/hora
+  useEffect(() => {
+    if (step === 3 && !generatedSchedule) {
+      setGeneratedSchedule(initializeBlankGrid(cycle, startHour));
+    }
+  }, [step, cycle, startHour]);
+
+  // Recriar grelha se o utilizador alterar o ciclo ou hora de início manualmente
+  const handleGridReset = (newCycle, newStartHour) => {
+    setCycle(newCycle);
+    setStartHour(newStartHour);
+    setGeneratedSchedule(initializeBlankGrid(newCycle, newStartHour));
+  };
+
+  // OCR de Leitura Real
   useEffect(() => {
     if (step !== 2) return;
 
     let isSubscribed = true;
 
     const runOCR = async () => {
-      // Iniciar progresso inicial simulado enquanto carrega o motor
       let simProgress = 0;
       const simInterval = setInterval(() => {
         if (simProgress < 30) {
           simProgress += 2;
           if (isSubscribed) {
             setScanProgress(simProgress);
-            setScanStatus("A otimizar contraste da imagem...");
+            setScanStatus("A otimizar print e contraste...");
           }
         } else {
           clearInterval(simInterval);
         }
-      }, 100);
+      }, 80);
 
       if (window.Tesseract && file) {
         try {
           if (isSubscribed) {
-            setScanStatus("A carregar motor OCR local...");
+            setScanStatus("A carregar motor OCR...");
           }
 
           const worker = await window.Tesseract.createWorker({
@@ -80,7 +137,7 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
                 const progressPercent = Math.min(30 + Math.round(m.progress * 65), 95);
                 if (isSubscribed) {
                   setScanProgress(progressPercent);
-                  setScanStatus("A digitalizar print e a ler grelhas...");
+                  setScanStatus("A extrair texto e disciplinas do documento...");
                 }
               }
             }
@@ -89,26 +146,18 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
           await worker.loadLanguage("por");
           await worker.initialize("por");
 
-          if (isSubscribed) {
-            setScanProgress(96);
-            setScanStatus("A ignorar intervalos e ruídos...");
-          }
-
-          const { data: { text, lines } } = await worker.recognize(file);
+          const { data: { lines } } = await worker.recognize(file);
           await worker.terminate();
 
           if (!isSubscribed) return;
 
-          console.log("SchoolSync OCR - Texto extraído:", text);
-
-          // Limpar e filtrar palavras/linhas detetadas para os badges clicáveis
+          // Processar palavras lidas para a paleta
           const wordSet = new Set();
           lines.forEach(line => {
             const cleanText = line.text.trim();
             if (cleanText.length > 2 && cleanText.length < 30) {
               const cleaned = cleanText.replace(/[().,;:!?\[\]]/g, "").trim();
-              if (cleaned.length > 2 && !/^\d+$/.test(cleaned) && !["sala", "prof", "intervalo", "recreio", "almoco"].includes(cleaned.toLowerCase())) {
-                // Capitalizar cada palavra
+              if (cleaned.length > 2 && !/^\d+$/.test(cleaned) && !["sala", "prof", "intervalo", "recreio", "almoco", "segunda", "terca", "quarta", "quinta", "sexta"].includes(cleaned.toLowerCase())) {
                 const capitalized = cleaned.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
                 wordSet.add(capitalized);
               }
@@ -117,26 +166,26 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
 
           const uniqueWordsList = Array.from(wordSet).sort();
           setDetectedWords(uniqueWordsList);
-
-          // Analisar texto para preencher o horário real
-          const finalSchedule = parseOCRTextToSchedule(text, uniqueWordsList);
+          
+          // Se ler alguma disciplina, define-a como pincel ativo inicial
+          if (uniqueWordsList.length > 0) {
+            setActiveBrush(uniqueWordsList[0]);
+          }
 
           setScanProgress(100);
-          setScanStatus("Importação por IA concluída!");
+          setScanStatus("Documento lido com sucesso!");
 
           setTimeout(() => {
             if (isSubscribed) {
-              setGeneratedSchedule(finalSchedule);
               setStep(3);
             }
-          }, 500);
+          }, 400);
 
         } catch (err) {
-          console.error("Falha no OCR Real, a recorrer à simulação:", err);
+          console.error("Falha no OCR, avançando para preenchimento manual:", err);
           fallbackToSimulation();
         }
       } else {
-        console.warn("Tesseract.js indisponível, a simular horário de modelo...");
         fallbackToSimulation();
       }
     };
@@ -149,22 +198,20 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
           clearInterval(interval);
           if (isSubscribed) {
             setScanProgress(100);
-            setScanStatus("A carregar modelo escolar sugerido...");
+            setScanStatus("A carregar assistente...");
             setTimeout(() => {
               if (isSubscribed) {
-                const schedule = generateScheduleForChild();
-                setGeneratedSchedule(schedule);
                 setStep(3);
               }
-            }, 500);
+            }, 400);
           }
         } else {
           if (isSubscribed) {
             setScanProgress(progress);
-            setScanStatus("A analisar imagem (Simulação inteligente)...");
+            setScanStatus("A inicializar assistente interativo...");
           }
         }
-      }, 200);
+      }, 100);
     };
 
     runOCR();
@@ -174,271 +221,86 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
     };
   }, [step]);
 
-  // Função para mapear o texto OCR de forma altamente fiel
-  const parseOCRTextToSchedule = (rawText, cleanWords) => {
-    const schedule = {
-      1: [],
-      2: [],
-      3: [],
-      4: [],
-      5: []
-    };
+  // Função para "Pintar" o valor na grelha ao clicar na célula
+  const handleCellClick = (dayIndex, slotIdx) => {
+    if (!generatedSchedule) return;
 
-    // Lista de disciplinas conhecidas em Portugal para correspondência
-    const subjectsMap = {
-      "matemática": "Matemática", "matematica": "Matemática",
-      "português": "Português", "portugues": "Português",
-      "inglês": "Inglês", "ingles": "Inglês",
-      "ciências": "Ciências Naturais", "ciencias": "Ciências Naturais", "cn": "Ciências Naturais",
-      "história": "História", "historia": "História",
-      "geografia": "Geografia", "geo": "Geografia",
-      "educação física": "Educação Física", "educacao fisica": "Educação Física", "ef": "Educação Física",
-      "física": "Física e Química", "química": "Física e Química", "fq": "Física e Química", "fisica e quimica": "Física e Química",
-      "dta": "DTA", "tic": "TIC", "francês": "Francês", "frances": "Francês",
-      "cidadania": "Cidadania e Desenvolvimento", "cd": "Cidadania e Desenvolvimento",
-      "filosofia": "Filosofia", "fil": "Filosofia",
-      "biologia": "Biologia e Geologia", "geologia": "Biologia e Geologia", "bg": "Biologia e Geologia",
-      "apoio": "Apoio Pedagógico", "estudo": "Estudo Acompanhado",
-      "direção de turma": "Direção de Turma", "dt": "Direção de Turma"
-    };
-
-    // Extrair horas da imagem
-    const hourRegex = /(\d{1,2}[:h]\d{2})\s*[-—]\s*(\d{1,2}[:h]\d{2})/gi;
-    const detectedHours = [];
-    let match;
-    while ((match = hourRegex.exec(rawText)) !== null) {
-      const start = match[1].replace('h', ':');
-      const end = match[2].replace('h', ':');
-      const formattedSlot = `${start.padStart(5, '0')} - ${end.padStart(5, '0')}`;
-      if (!detectedHours.includes(formattedSlot)) {
-        detectedHours.push(formattedSlot);
+    setGeneratedSchedule((prev) => {
+      const updated = { ...prev };
+      const currentCell = updated[dayIndex][slotIdx];
+      
+      // Se for a borracha, limpa a célula. Caso contrário, atribui a disciplina selecionada
+      if (activeBrush === "eraser") {
+        currentCell.subject = "";
+      } else {
+        currentCell.subject = activeBrush;
       }
-    }
-
-    detectedHours.sort();
-
-    const finalSlots = detectedHours.length >= 3 ? detectedHours : [
-      getSlotTime(0, startHour),
-      getSlotTime(1, startHour),
-      getSlotTime(2, startHour),
-      getSlotTime(3, startHour),
-      getSlotTime(4, startHour),
-      getSlotTime(5, startHour),
-      getSlotTime(6, startHour),
-      getSlotTime(7, startHour),
-      getSlotTime(8, startHour)
-    ];
-
-    // Mapear disciplinas válidas encontradas
-    const ocrSubjects = [];
-    cleanWords.forEach(word => {
-      const lower = word.toLowerCase();
-      for (const [key, value] of Object.entries(subjectsMap)) {
-        if (lower === key || lower.includes(key) && key.length > 2) {
-          if (!ocrSubjects.includes(value)) {
-            ocrSubjects.push(value);
-          }
-        }
-      }
+      
+      return updated;
     });
+  };
 
-    console.log("SchoolSync OCR - Disciplinas puras mapeadas:", ocrSubjects);
-
-    // Se detetámos dados reais no print, injetamos nas grelhas
-    if (ocrSubjects.length > 0) {
-      let wordIndex = 0;
-      for (let day = 1; day <= 5; day++) {
-        const dayClassesCount = Math.min(finalSlots.length, 5 + (day % 2));
-        for (let i = 0; i < dayClassesCount; i++) {
-          const subject = ocrSubjects[wordIndex % ocrSubjects.length] || "";
-          wordIndex++;
-
-          schedule[day].push({
-            id: `gen-ocr-${day}-${i}-${Math.random().toString(36).substr(2, 5)}`,
-            subject: subject,
-            time: finalSlots[i] || getSlotTime(i, startHour),
-            room: "",
-            teacher: "",
-            email: ""
-          });
+  // Alterar a hora de um bloco específico
+  const handleRowTimeChange = (slotIdx, newTimeValue) => {
+    setGeneratedSchedule((prev) => {
+      if (!prev) return null;
+      const updated = { ...prev };
+      Object.keys(updated).forEach((dayIndex) => {
+        if (updated[dayIndex][slotIdx]) {
+          updated[dayIndex][slotIdx].time = newTimeValue;
         }
-      }
-    } else {
-      // Fallback para sugestão baseada no ano letivo
-      return generateScheduleForChild();
-    }
-
-    return schedule;
-  };
-
-  // Função para criar um horário padrão caso o print falhe
-  const generateScheduleForChild = () => {
-    let gradeNumber = 7;
-    const match = activeChild.grade.match(/(\d+)/);
-    if (match) {
-      gradeNumber = parseInt(match[1], 10);
-    }
-
-    if (gradeNumber <= 9) {
-      return {
-        1: [
-          { id: `gen-mat-1`, subject: "Matemática", time: getSlotTime(0, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-ing-1`, subject: "Inglês", time: getSlotTime(1, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-ing-2`, subject: "Inglês", time: getSlotTime(2, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-por-1`, subject: "Português", time: getSlotTime(3, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-por-2`, subject: "Português", time: getSlotTime(4, startHour), room: "", teacher: "", email: "" }
-        ],
-        2: [
-          { id: `gen-dta-1`, subject: "DTA", time: getSlotTime(0, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-ef-1`, subject: "Educação Física", time: getSlotTime(1, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-cn-1`, subject: "Ciências Naturais", time: getSlotTime(2, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-fq-1`, subject: "Física e Química", time: getSlotTime(3, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-mat-2`, subject: "Matemática", time: getSlotTime(5, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-mat-3`, subject: "Matemática", time: getSlotTime(6, startHour), room: "", teacher: "", email: "" }
-        ],
-        3: [
-          { id: `gen-geo-1`, subject: "Geografia", time: getSlotTime(0, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-geo-2`, subject: "Geografia", time: getSlotTime(1, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-ing-3`, subject: "Inglês", time: getSlotTime(2, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-por-3`, subject: "Português", time: getSlotTime(3, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-por-4`, subject: "Português", time: getSlotTime(4, startHour), room: "", teacher: "", email: "" }
-        ],
-        4: [
-          { id: `gen-tic-1`, subject: "TIC", time: getSlotTime(1, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-tic-2`, subject: "TIC", time: getSlotTime(2, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-fra-1`, subject: "Francês", time: getSlotTime(3, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-ev-1`, subject: "Educação Visual", time: getSlotTime(5, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-ev-2`, subject: "Educação Visual", time: getSlotTime(6, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-fq-2`, subject: "Física e Química", time: getSlotTime(7, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-fq-3`, subject: "Física e Química", time: getSlotTime(8, startHour), room: "", teacher: "", email: "" }
-        ],
-        5: [
-          { id: `gen-ef-2`, subject: "Educação Física", time: getSlotTime(0, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-ef-3`, subject: "Educação Física", time: getSlotTime(1, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-mat-4`, subject: "Matemática", time: getSlotTime(2, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-fra-2`, subject: "Francês", time: getSlotTime(3, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-cn-2`, subject: "Ciências Naturais", time: getSlotTime(5, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-cn-3`, subject: "Ciências Naturais", time: getSlotTime(6, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-geo-3`, subject: "Geografia", time: getSlotTime(7, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-geo-4`, subject: "Geografia", time: getSlotTime(8, startHour), room: "", teacher: "", email: "" }
-        ]
-      };
-    } else {
-      return {
-        1: [
-          { id: `gen-fil-1`, subject: "Filosofia", time: getSlotTime(0, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-fil-2`, subject: "Filosofia", time: getSlotTime(1, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-bg-1`, subject: "Biologia e Geologia", time: getSlotTime(2, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-bg-2`, subject: "Biologia e Geologia", time: getSlotTime(3, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-fq-1`, subject: "Física e Química A", time: getSlotTime(5, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-fq-2`, subject: "Física e Química A", time: getSlotTime(6, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-mat-1`, subject: "Matemática A", time: getSlotTime(7, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-cd-1`, subject: "Cidadania e Desenvolvimento", time: getSlotTime(8, startHour), room: "", teacher: "", email: "" }
-        ],
-        2: [
-          { id: `gen-bg-3`, subject: "Biologia e Geologia", time: getSlotTime(0, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-bg-4`, subject: "Biologia e Geologia", time: getSlotTime(1, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-por-1`, subject: "Português", time: getSlotTime(2, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-por-2`, subject: "Português", time: getSlotTime(3, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-ing-1`, subject: "Inglês", time: getSlotTime(5, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-ef-1`, subject: "Educação Física", time: getSlotTime(6, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-fq-3`, subject: "Física e Química A", time: getSlotTime(7, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-fq-4`, subject: "Física e Química A", time: getSlotTime(8, startHour), room: "", teacher: "", email: "" }
-        ],
-        3: [
-          { id: `gen-ef-2`, subject: "Educação Física", time: getSlotTime(0, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-ef-3`, subject: "Educação Física", time: getSlotTime(1, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-fq-5`, subject: "Física e Química A", time: getSlotTime(2, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-mat-2`, subject: "Matemática A", time: getSlotTime(3, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-mat-3`, subject: "Matemática A", time: getSlotTime(4, startHour), room: "", teacher: "", email: "" }
-        ],
-        4: [
-          { id: `gen-por-3`, subject: "Português", time: getSlotTime(0, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-por-4`, subject: "Português", time: getSlotTime(1, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-mat-4`, subject: "Matemática A", time: getSlotTime(2, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-mat-5`, subject: "Matemática A", time: getSlotTime(3, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-bg-5`, subject: "Biologia e Geologia", time: getSlotTime(4, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-fil-3`, subject: "Filosofia", time: getSlotTime(6, startHour), room: "", teacher: "", email: "" }
-        ],
-        5: [
-          { id: `gen-ing-2`, subject: "Inglês", time: getSlotTime(0, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-ing-3`, subject: "Inglês", time: getSlotTime(1, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-bg-6`, subject: "Biologia e Geologia", time: getSlotTime(2, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-bg-7`, subject: "Biologia e Geologia", time: getSlotTime(3, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-dt-1`, subject: "Direção de Turma", time: getSlotTime(4, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-fq-6`, subject: "Física e Química A", time: getSlotTime(6, startHour), room: "", teacher: "", email: "" },
-          { id: `gen-fq-7`, subject: "Física e Química A", time: getSlotTime(7, startHour), room: "", teacher: "", email: "" }
-        ]
-      };
-    }
-  };
-
-  // Recalcular horas globais
-  const handleShiftTimes = (newStart) => {
-    setStartHour(newStart);
-    setGeneratedSchedule((prevSchedule) => {
-      if (!prevSchedule) return null;
-      const updated = {};
-      Object.entries(prevSchedule).forEach(([dayIndex, dayClasses]) => {
-        updated[dayIndex] = dayClasses.map((classItem, idx) => ({
-          ...classItem,
-          time: getSlotTime(idx, newStart)
-        }));
       });
       return updated;
     });
   };
 
-  // Edição na tabela de extração
-  const handleEditClass = (dayIndex, classId, field, value) => {
+  // Adicionar uma nova linha (bloco de tempo)
+  const handleAddRow = () => {
     setGeneratedSchedule((prev) => {
       if (!prev) return null;
-      const dayClasses = prev[dayIndex].map((c) => {
-        if (c.id === classId) {
-          return { ...c, [field]: value };
+      const updated = { ...prev };
+      const currentLength = updated[1].length;
+      
+      // Calcular um tempo sugerido baseado na última linha
+      let suggestedTime = "17:00 - 18:00";
+      if (currentLength > 0) {
+        const lastTime = updated[1][currentLength - 1].time;
+        const parts = lastTime.split(" - ");
+        if (parts.length === 2) {
+          const [sh, sm] = parts[1].split(":").map(Number);
+          const endHourFormatted = `${String(sh).padStart(2, '0')}:${String(sm).padStart(2, '0')}`;
+          const nextHourFormatted = `${String(sh + 1).padStart(2, '0')}:${String(sm).padStart(2, '0')}`;
+          suggestedTime = `${endHourFormatted} - ${nextHourFormatted}`;
         }
-        return c;
-      });
-      return { ...prev, [dayIndex]: dayClasses };
+      }
+
+      for (let day = 1; day <= 5; day++) {
+        updated[day].push({
+          id: `cell-${day}-${currentLength}-${Math.random().toString(36).substr(2, 5)}`,
+          subject: "",
+          time: suggestedTime,
+          room: "",
+          teacher: "",
+          email: ""
+        });
+      }
+      return updated;
     });
   };
 
-  const handleDeleteClass = (dayIndex, classId) => {
+  // Remover uma linha (tempo de aula)
+  const handleRemoveRow = (slotIdx) => {
     setGeneratedSchedule((prev) => {
       if (!prev) return null;
-      const filtered = prev[dayIndex].filter((c) => c.id !== classId);
-      const reindexed = filtered.map((c, idx) => ({
-        ...c,
-        time: getSlotTime(idx, startHour)
-      }));
-      return { ...prev, [dayIndex]: reindexed };
+      const updated = { ...prev };
+      for (let day = 1; day <= 5; day++) {
+        updated[day] = updated[day].filter((_, idx) => idx !== slotIdx);
+      }
+      return updated;
     });
   };
 
-  const handleAddClass = (dayIndex) => {
-    setGeneratedSchedule((prev) => {
-      if (!prev) return null;
-      const currentList = prev[dayIndex] || [];
-      const newIndex = currentList.length;
-      const newClass = {
-        id: `gen-custom-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-        subject: "",
-        time: getSlotTime(newIndex, startHour),
-        room: "",
-        teacher: "",
-        email: ""
-      };
-      return { ...prev, [dayIndex]: [...currentList, newClass] };
-    });
-  };
-
-  // Handler para clicar num badge do OCR
-  const handleSelectBadge = (word) => {
-    if (!focusedInput) return;
-    handleEditClass(focusedInput.dayIndex, focusedInput.classId, "subject", word);
-  };
-
-  // Drag & drop
+  // Drag and drop handlers
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -471,7 +333,7 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
     }
   };
 
-  // Gravar e Injetar
+  // Confirmar a injeção na aplicação
   const handleConfirmImport = () => {
     if (!generatedSchedule) return;
 
@@ -479,10 +341,11 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
     let hasValidClasses = false;
 
     Object.entries(generatedSchedule).forEach(([dayIndex, dayClasses]) => {
+      // Filtra apenas células que têm disciplinas atribuídas
       const validClasses = dayClasses
         .filter(c => c.subject.trim() !== "")
         .map(c => {
-          // Remover qualquer parêntese ou parêntese reto das disciplinas (ex: "Matemática (T1)" -> "Matemática")
+          // Limpeza de parênteses por segurança
           const cleanSubject = c.subject
             .replace(/\(.*?\)/g, "")
             .replace(/\[.*?\]/g, "")
@@ -498,7 +361,7 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
     });
 
     if (!hasValidClasses) {
-      alert("Por favor, preencha o nome de pelo menos uma disciplina.");
+      alert("Por favor, pinte pelo menos uma disciplina na grelha antes de confirmar.");
       return;
     }
 
@@ -506,18 +369,25 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
     onClose();
   };
 
+  // Disciplinas padrão em Portugal
+  const DEFAULT_SUBJECTS = [
+    "Matemática", "Português", "Inglês", "Ciências Naturais", "Física e Química", 
+    "História", "Geografia", "Educação Física", "TIC", "Francês", 
+    "Educação Visual", "Cidadania", "Filosofia", "Direção de Turma"
+  ];
+
   return (
     <div className="modal-overlay" style={{ zIndex: 999999 }}>
-      <div className="glass-panel modal-content" style={{ maxWidth: step === 3 ? "800px" : "600px", padding: "1.75rem", transition: "max-width 0.3s ease" }}>
+      <div className="glass-panel modal-content" style={{ maxWidth: step === 3 ? "950px" : "600px", padding: "1.5rem", transition: "max-width 0.3s ease" }}>
         <button className="modal-close" onClick={onClose}>×</button>
 
         {step === 1 && (
-          /* ================= STEP 1: DROPZONE UPLOAD ================= */
+          /* ================= PASSO 1: UPLOAD ================= */
           <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
             <div className="modal-header" style={{ textAlign: "center" }}>
               <h3 className="gradient-text" style={{ fontSize: "1.4rem" }}>📤 Importar Horário de {activeChild.name}</h3>
               <p style={{ fontSize: "0.82rem", color: "var(--color-text-secondary)", marginTop: "0.25rem" }}>
-                Importe um print do telemóvel, foto ou documento do horário escolar. A nossa IA identificará as disciplinas e organizará a sua agenda.
+                Carregue um print ou foto do horário. O nosso assistente inteligente ajudá-lo-á a recriar a grelha em segundos com 100% de exatidão e zero digitação!
               </p>
             </div>
 
@@ -558,23 +428,23 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
               
               <div>
                 <p style={{ fontSize: "0.9rem", fontWeight: "600", color: "var(--color-text-primary)" }}>
-                  {dragActive ? "Solte o documento aqui..." : "Arraste o print ou clique para selecionar"}
+                  {dragActive ? "Solte o print aqui..." : "Arraste o print do telemóvel ou clique para carregar"}
                 </p>
                 <p style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
-                  Suporta PNG, JPG, JPEG ou documentos PDF
+                  Suporta imagens PNG, JPG, JPEG ou documentos PDF
                 </p>
               </div>
             </form>
 
             <div style={{ padding: "0.8rem 1rem", background: "rgba(255, 255, 255, 0.02)", borderRadius: "var(--radius-md)", fontSize: "0.75rem", color: "var(--color-text-secondary)", lineHeight: "1.4", display: "flex", gap: "0.5rem", alignItems: "center" }}>
               <span>💡</span>
-              <span><strong>Dica:</strong> Pode enviar um print do seu telemóvel relativo à plataforma escolar (ex: Inovar Consulta).</span>
+              <span><strong>Dica:</strong> Pode carregar um print da caderneta de aluno ou da plataforma escolar (ex: Inovar Consulta).</span>
             </div>
           </div>
         )}
 
         {step === 2 && (
-          /* ================= STEP 2: SCANNING IA ================= */
+          /* ================= PASSO 2: DIGITALIZAÇÃO IA (OCR) ================= */
           <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "1.5rem", padding: "2rem 0", textAlign: "center" }}>
             <div style={{ position: "relative", width: "120px", height: "120px", borderRadius: "16px", background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.08)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 10px 30px rgba(0,0,0,0.2)" }}>
               <span style={{ fontSize: "3rem" }}>📄</span>
@@ -590,7 +460,7 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
             `}</style>
 
             <div style={{ width: "100%" }}>
-              <h4 style={{ fontSize: "1.1rem", fontWeight: "700", marginBottom: "0.25rem" }}>A Digitalizar com Inteligência Artificial (OCR)</h4>
+              <h4 style={{ fontSize: "1.1rem", fontWeight: "700", marginBottom: "0.25rem" }}>A Ler Print com Inteligência Artificial (OCR)</h4>
               <p style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)", wordBreak: "break-all" }}>Ficheiro: {file?.name || "imagem_horario.png"}</p>
             </div>
 
@@ -605,40 +475,54 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
         )}
 
         {step === 3 && (
-          /* ================= STEP 3: PREVIEW & CONFIRM ================= */
-          <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            <div className="modal-header" style={{ textAlign: "center" }}>
-              <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: "36px", height: "36px", borderRadius: "50%", background: "rgba(16, 185, 129, 0.15)", border: "1px solid rgba(16, 185, 129, 0.3)", color: "#10b981", fontSize: "1.1rem", marginBottom: "0.2rem" }}>
-                ✓
-              </div>
-              <h3 className="gradient-text" style={{ fontSize: "1.2rem", margin: 0 }}>Extração Concluída</h3>
+          /* ================= PASSO 3: ASSISTENTE PINTAR GRELHA (100% EXATO) ================= */
+          <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+            
+            {/* Cabeçalho do Assistente */}
+            <div className="modal-header" style={{ textAlign: "center", borderBottom: "1px solid rgba(255,255,255,0.05)", paddingBottom: "0.5rem" }}>
+              <h3 className="gradient-text" style={{ fontSize: "1.25rem", margin: 0 }}>🎨 Pintar Horário de {activeChild.name}</h3>
               <p style={{ fontSize: "0.78rem", color: "var(--color-text-secondary)", marginTop: "0.15rem" }}>
-                Grelha preenchida com o texto real do print. Ajuste as informações abaixo!
+                1. Escolha uma disciplina na paleta. 2. Clique nos blocos da tabela para a preencher. 100% Exato e sem erros!
               </p>
             </div>
 
-            {/* Ajustes Globais da Hora de Arranque */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255, 255, 255, 0.02)", padding: "0.5rem 0.8rem", borderRadius: "var(--radius-md)", border: "1px solid rgba(255, 255, 255, 0.04)", gap: "0.5rem" }}>
-              <span style={{ fontSize: "0.75rem", fontWeight: "600", color: "var(--color-text-secondary)" }}>⏰ Alinhar horas à primeira aula do seu filho:</span>
-              <select 
-                value={startHour} 
-                onChange={(e) => handleShiftTimes(e.target.value)}
-                className="form-select"
-                style={{ width: "auto", padding: "0.25rem 1.8rem 0.25rem 0.5rem", fontSize: "0.75rem", borderRadius: "6px" }}
-              >
-                <option value="08:00">08:00 - 09:00 (1ª aula)</option>
-                <option value="08:15">08:15 - 09:15 (1ª aula)</option>
-                <option value="08:30">08:30 - 09:30 (1ª aula)</option>
-                <option value="09:00">09:00 - 10:00 (1ª aula)</option>
-              </select>
+            {/* Ajustes Rápidos da Grelha */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", background: "rgba(255, 255, 255, 0.01)", padding: "0.5rem 0.75rem", borderRadius: "var(--radius-md)", border: "1px solid rgba(255, 255, 255, 0.04)", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span style={{ fontSize: "0.75rem", fontWeight: "600", color: "var(--color-text-secondary)" }}>Escolaridade:</span>
+                <select 
+                  value={cycle} 
+                  onChange={(e) => handleGridReset(e.target.value, startHour)}
+                  className="form-select"
+                  style={{ width: "auto", padding: "0.2rem 1.6rem 0.2rem 0.4rem", fontSize: "0.72rem", borderRadius: "4px" }}
+                >
+                  <option value="basico">Básico (5º ao 9º Ano — Tempos de 50m)</option>
+                  <option value="secundario">Secundário (10º ao 12º Ano — Tempos de 90m)</option>
+                </select>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span style={{ fontSize: "0.75rem", fontWeight: "600", color: "var(--color-text-secondary)" }}>Hora de Início:</span>
+                <select 
+                  value={startHour} 
+                  onChange={(e) => handleGridReset(cycle, e.target.value)}
+                  className="form-select"
+                  style={{ width: "auto", padding: "0.2rem 1.6rem 0.2rem 0.4rem", fontSize: "0.72rem", borderRadius: "4px" }}
+                >
+                  <option value="08:00">08:00</option>
+                  <option value="08:15">08:15</option>
+                  <option value="08:30">08:30</option>
+                  <option value="09:00">09:00</option>
+                </select>
+              </div>
             </div>
 
-            {/* LADO A LADO: Preview do Print (Esquerda) + Tabela Edição (Direita) */}
+            {/* LADO A LADO: Print Original (Esquerda) + Grelha de Toque (Direita) */}
             <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem" }}>
               
-              {/* Esquerda: Print Preview */}
-              <div style={{ flex: "1 1 200px", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                <span style={{ fontSize: "0.75rem", fontWeight: "600", color: "var(--color-text-secondary)" }}>📄 Print Carregado (Clique para ampliar):</span>
+              {/* Esquerda: Print Consultor (Imagem) */}
+              <div style={{ flex: "1 1 200px", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                <span style={{ fontSize: "0.72rem", fontWeight: "700", color: "var(--color-text-secondary)" }}>📄 Print Original (Clique p/ Zoom):</span>
                 <div style={{
                   background: "rgba(0, 0, 0, 0.25)",
                   borderRadius: "var(--radius-md)",
@@ -647,8 +531,8 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  padding: "0.5rem",
-                  height: "280px"
+                  padding: "0.4rem",
+                  height: "270px"
                 }}>
                   {imageUrl ? (
                     <img 
@@ -683,203 +567,307 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
                 </div>
               </div>
 
-              {/* Direita: Tabela Grelha */}
-              <div style={{ flex: "2 1 300px", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                <span style={{ fontSize: "0.75rem", fontWeight: "600", color: "var(--color-text-secondary)" }}>✏️ Horário Extraído (Editar):</span>
-                <div 
-                  style={{ 
-                    maxHeight: "280px", 
-                    overflowY: "auto", 
-                    background: "rgba(0, 0, 0, 0.2)", 
-                    borderRadius: "var(--radius-md)", 
-                    border: "1px solid rgba(255, 255, 255, 0.05)",
-                    padding: "0.6rem",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "0.8rem"
-                  }}
-                >
-                  {Object.entries(generatedSchedule).map(([dayIndex, dayClasses]) => {
-                    const dayNames = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
-                    const dayName = dayNames[parseInt(dayIndex, 10) - 1];
+              {/* Direita: Grelha Interativa de Toque */}
+              <div style={{ flex: "2 1 450px", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: "0.72rem", fontWeight: "700", color: "var(--color-text-secondary)" }}>✏️ Clique nos blocos para pintar:</span>
+                  <button 
+                    type="button"
+                    onClick={handleAddRow}
+                    style={{ background: "transparent", border: "none", color: "var(--color-primary)", fontSize: "0.7rem", fontWeight: "600", cursor: "pointer" }}
+                  >
+                    ＋ Adicionar Tempo (Linha)
+                  </button>
+                </div>
 
-                    return (
-                      <div key={dayIndex} style={{ borderBottom: "1px solid rgba(255, 255, 255, 0.03)", paddingBottom: "0.6rem" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.3rem" }}>
-                          <span style={{ fontSize: "0.75rem", fontWeight: "700", color: "var(--color-primary)" }}>{dayName}</span>
-                          <button 
-                            type="button" 
-                            onClick={() => handleAddClass(dayIndex)}
-                            style={{ background: "transparent", border: "none", color: "var(--color-text-secondary)", fontSize: "0.7rem", fontWeight: "600", cursor: "pointer" }}
-                          >
-                            ＋ Adicionar
-                          </button>
-                        </div>
-
-                        <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
-                          {dayClasses.length === 0 ? (
-                            <div style={{ fontSize: "0.68rem", color: "var(--color-text-muted)", padding: "0.2rem" }}>Sem aulas</div>
-                          ) : (
-                            dayClasses.map((c) => (
-                              <div 
-                                key={c.id} 
-                                style={{ 
-                                  display: "flex", 
-                                  alignItems: "center", 
-                                  gap: "0.35rem", 
-                                  background: "rgba(255, 255, 255, 0.01)", 
-                                  padding: "3px 6px", 
-                                  borderRadius: "6px",
-                                  border: "1px solid rgba(255, 255, 255, 0.02)"
+                <div style={{ maxHeight: "270px", overflow: "auto", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--radius-md)", background: "rgba(0,0,0,0.15)" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.72rem", textAlign: "center" }}>
+                    <thead>
+                      <tr style={{ background: "rgba(255, 255, 255, 0.03)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                        <th style={{ padding: "6px 8px", width: "95px", fontWeight: "600", color: "var(--color-text-muted)" }}>Hora / Bloco</th>
+                        <th style={{ padding: "6px 4px", fontWeight: "700", color: "var(--color-text-primary)" }}>Seg</th>
+                        <th style={{ padding: "6px 4px", fontWeight: "700", color: "var(--color-text-primary)" }}>Ter</th>
+                        <th style={{ padding: "6px 4px", fontWeight: "700", color: "var(--color-text-primary)" }}>Qua</th>
+                        <th style={{ padding: "6px 4px", fontWeight: "700", color: "var(--color-text-primary)" }}>Qui</th>
+                        <th style={{ padding: "6px 4px", fontWeight: "700", color: "var(--color-text-primary)" }}>Sex</th>
+                        <th style={{ width: "30px" }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {generatedSchedule && generatedSchedule[1].map((_, slotIdx) => {
+                        const rowTime = generatedSchedule[1][slotIdx]?.time || "08:30 - 09:20";
+                        return (
+                          <tr key={slotIdx} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", transition: "background 0.1s" }} className="grid-row-hover">
+                            {/* Hora Editável da Linha */}
+                            <td style={{ padding: "4px" }}>
+                              <input 
+                                type="text"
+                                value={rowTime}
+                                onChange={(e) => handleRowTimeChange(slotIdx, e.target.value)}
+                                style={{
+                                  width: "90px",
+                                  fontSize: "0.68rem",
+                                  background: "rgba(0,0,0,0.2)",
+                                  border: "none",
+                                  color: "var(--color-text-secondary)",
+                                  borderRadius: "4px",
+                                  padding: "2px",
+                                  textAlign: "center",
+                                  outline: "none"
                                 }}
+                              />
+                            </td>
+
+                            {/* Células de Dias de Aulas Pintáveis */}
+                            {[1, 2, 3, 4, 5].map((dayIndex) => {
+                              const cell = generatedSchedule[dayIndex][slotIdx] || { subject: "" };
+                              const isEmpty = !cell.subject.trim();
+                              return (
+                                <td key={dayIndex} style={{ padding: "2px" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCellClick(dayIndex, slotIdx)}
+                                    style={{
+                                      width: "100%",
+                                      minHeight: "26px",
+                                      border: isEmpty ? "1px dashed rgba(255, 255, 255, 0.08)" : "1px solid rgba(var(--color-primary-rgb), 0.15)",
+                                      background: isEmpty 
+                                        ? "transparent" 
+                                        : "rgba(var(--color-primary-rgb), 0.08)",
+                                      color: isEmpty ? "rgba(255,255,255,0.25)" : "var(--color-text-primary)",
+                                      fontWeight: isEmpty ? "normal" : "700",
+                                      borderRadius: "4px",
+                                      fontSize: "0.68rem",
+                                      cursor: "pointer",
+                                      padding: "2px 4px",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      transition: "all 0.1s ease",
+                                      wordBreak: "break-word"
+                                    }}
+                                    onMouseOver={(e) => {
+                                      e.target.style.borderColor = activeBrush === "eraser" ? "#ef4444" : "var(--color-primary)";
+                                      e.target.style.background = activeBrush === "eraser" ? "rgba(239, 68, 68, 0.08)" : "rgba(var(--color-primary-rgb), 0.12)";
+                                    }}
+                                    onMouseOut={(e) => {
+                                      e.target.style.borderColor = isEmpty ? "rgba(255,255,255,0.08)" : "rgba(var(--color-primary-rgb), 0.15)";
+                                      e.target.style.background = isEmpty ? "transparent" : "rgba(var(--color-primary-rgb), 0.08)";
+                                    }}
+                                    title="Clique para pintar esta disciplina"
+                                  >
+                                    {isEmpty ? "—" : cell.subject}
+                                  </button>
+                                </td>
+                              );
+                            })}
+
+                            {/* Eliminar Linha */}
+                            <td style={{ padding: "2px" }}>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveRow(slotIdx)}
+                                style={{
+                                  background: "transparent",
+                                  border: "none",
+                                  color: "#ef4444",
+                                  cursor: "pointer",
+                                  fontSize: "0.75rem",
+                                  opacity: 0.45
+                                }}
+                                onMouseOver={(e) => e.target.style.opacity = 1}
+                                onMouseOut={(e) => e.target.style.opacity = 0.45}
+                                title="Remover este tempo"
                               >
-                                <input 
-                                  type="text" 
-                                  value={c.time} 
-                                  onChange={(e) => handleEditClass(dayIndex, c.id, "time", e.target.value)}
-                                  style={{ 
-                                    width: "88px", 
-                                    fontSize: "0.68rem", 
-                                    background: "rgba(0,0,0,0.3)", 
-                                    border: "none", 
-                                    color: "var(--color-text-secondary)", 
-                                    padding: "2px 4px", 
-                                    borderRadius: "4px",
-                                    textAlign: "center"
-                                  }} 
-                                  placeholder="08:00 - 09:00"
-                                />
-
-                                <input 
-                                  type="text" 
-                                  value={c.subject} 
-                                  onChange={(e) => handleEditClass(dayIndex, c.id, "subject", e.target.value)}
-                                  onFocus={() => setFocusedInput({ dayIndex, classId: c.id })}
-                                  style={{ 
-                                    flex: 1, 
-                                    fontSize: "0.75rem", 
-                                    background: focusedInput?.dayIndex === dayIndex && focusedInput?.classId === c.id 
-                                      ? "rgba(var(--color-primary-rgb), 0.08)" 
-                                      : "rgba(255,255,255,0.03)", 
-                                    border: focusedInput?.dayIndex === dayIndex && focusedInput?.classId === c.id
-                                      ? "1px solid var(--color-primary)"
-                                      : "1px solid rgba(255,255,255,0.05)", 
-                                    color: "var(--color-text-primary)", 
-                                    padding: "2px 5px", 
-                                    borderRadius: "4px",
-                                    fontWeight: "600",
-                                    outline: "none",
-                                    transition: "all 0.15s ease"
-                                  }} 
-                                  placeholder="Nome da disciplina"
-                                />
-
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteClass(dayIndex, c.id)}
-                                  style={{ 
-                                    background: "rgba(239, 68, 68, 0.08)", 
-                                    border: "none", 
-                                    color: "#f87171", 
-                                    padding: "3px 5px", 
-                                    borderRadius: "4px", 
-                                    cursor: "pointer", 
-                                    fontSize: "0.68rem",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center"
-                                  }}
-                                  title="Remover"
-                                >
-                                  🗑️
-                                </button>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                                ✕
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
 
             </div>
 
-            {/* Badges de Palavras Extraídas pelo OCR (Clique-para-Preencher) */}
-            {detectedWords.length > 0 && (
-              <div style={{ 
-                background: "rgba(255, 255, 255, 0.015)", 
-                padding: "0.6rem 0.8rem", 
-                borderRadius: "var(--radius-md)", 
-                border: "1px solid rgba(255, 255, 255, 0.04)",
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.35rem"
-              }}>
-                <span style={{ fontSize: "0.72rem", fontWeight: "700", color: "var(--color-primary)", display: "flex", alignItems: "center", gap: "4px" }}>
-                  💡 Clique-para-Preencher rápido:
-                </span>
-                <p style={{ fontSize: "0.68rem", color: "var(--color-text-muted)", margin: 0 }}>
-                  Foque (clique) num campo de disciplina acima e depois selecione um badge abaixo para a preencher sem ter de digitar!
-                </p>
-                <div style={{ 
-                  display: "flex", 
-                  flexWrap: "wrap", 
-                  gap: "0.3rem", 
-                  maxHeight: "80px", 
-                  overflowY: "auto", 
-                  padding: "2px 0"
-                }}>
-                  {detectedWords.map((word, idx) => (
+            {/* SEÇÃO DA PALETA: Onde selecionam a cor/disciplina ativa para pintura */}
+            <div style={{ 
+              background: "rgba(255, 255, 255, 0.015)", 
+              padding: "0.6rem 0.8rem", 
+              borderRadius: "var(--radius-md)", 
+              border: "1px solid rgba(255, 255, 255, 0.04)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.5rem"
+            }}>
+              
+              {/* Disciplina Selecionada no Pincel */}
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", borderBottom: "1px solid rgba(255,255,255,0.03)", paddingBottom: "0.4rem" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                  <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>Pincel Selecionado:</span>
+                  <span 
+                    style={{ 
+                      fontSize: "0.75rem", 
+                      fontWeight: "700", 
+                      background: activeBrush === "eraser" ? "rgba(239, 68, 68, 0.15)" : "rgba(6, 182, 212, 0.15)",
+                      border: activeBrush === "eraser" ? "1px solid #ef4444" : "1px solid #06b6d4",
+                      color: activeBrush === "eraser" ? "#f87171" : "#22d3ee",
+                      padding: "2px 8px",
+                      borderRadius: "12px",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      boxShadow: activeBrush === "eraser" ? "none" : "0 0 10px rgba(6, 182, 212, 0.2)"
+                    }}
+                  >
+                    {activeBrush === "eraser" ? "🧽 Borracha (Limpar Célula)" : `✏️ ${activeBrush}`}
+                  </span>
+                </div>
+
+                {/* Caixa de Texto para Criar Pincel Personalizado */}
+                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                  <input 
+                    type="text"
+                    value={customBrushText}
+                    onChange={(e) => setCustomBrushText(e.target.value)}
+                    placeholder="Outra disciplina..."
+                    style={{
+                      padding: "3px 6px",
+                      fontSize: "0.68rem",
+                      background: "rgba(255,255,255,0.03)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      borderRadius: "4px",
+                      color: "var(--color-text-primary)",
+                      width: "120px",
+                      outline: "none"
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && customBrushText.trim()) {
+                        setActiveBrush(customBrushText.trim());
+                        setCustomBrushText("");
+                      }
+                    }}
+                  />
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      if (customBrushText.trim()) {
+                        setActiveBrush(customBrushText.trim());
+                        setCustomBrushText("");
+                      }
+                    }}
+                    style={{
+                      background: "var(--color-primary)",
+                      border: "none",
+                      color: "white",
+                      padding: "3px 6px",
+                      borderRadius: "4px",
+                      fontSize: "0.68rem",
+                      cursor: "pointer",
+                      fontWeight: "600"
+                    }}
+                  >
+                    Usar
+                  </button>
+                </div>
+              </div>
+
+              {/* Badges do Print Lidos por OCR */}
+              {detectedWords.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                  <span style={{ fontSize: "0.68rem", fontWeight: "700", color: "#10b981" }}>Texto detetado no print (Clique para usar como pincel):</span>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem", maxHeight: "60px", overflowY: "auto" }}>
+                    {detectedWords.map((word, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setActiveBrush(word)}
+                        style={{
+                          background: activeBrush === word ? "rgba(16, 185, 129, 0.15)" : "rgba(255, 255, 255, 0.02)",
+                          border: activeBrush === word ? "1px solid #10b981" : "1px solid rgba(255, 255, 255, 0.08)",
+                          borderRadius: "20px",
+                          padding: "1px 7px",
+                          fontSize: "0.65rem",
+                          color: "var(--color-text-primary)",
+                          cursor: "pointer",
+                          transition: "all 0.1s"
+                        }}
+                      >
+                        {word}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Disciplinas Padrão Escolares */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                <span style={{ fontSize: "0.68rem", fontWeight: "700", color: "var(--color-text-muted)" }}>Disciplinas padrão & Utilitários:</span>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem" }}>
+                  <button
+                    type="button"
+                    onClick={() => setActiveBrush("eraser")}
+                    style={{
+                      background: activeBrush === "eraser" ? "rgba(239, 68, 68, 0.15)" : "rgba(255, 255, 255, 0.02)",
+                      border: activeBrush === "eraser" ? "1px solid #ef4444" : "1px solid rgba(255, 255, 255, 0.08)",
+                      borderRadius: "20px",
+                      padding: "1px 7px",
+                      fontSize: "0.65rem",
+                      color: "#f87171",
+                      cursor: "pointer",
+                      fontWeight: "700",
+                      transition: "all 0.1s"
+                    }}
+                  >
+                    🧽 Limpar Célula (Borracha)
+                  </button>
+
+                  {DEFAULT_SUBJECTS.map((sub, idx) => (
                     <button
                       key={idx}
                       type="button"
-                      onClick={() => handleSelectBadge(word)}
+                      onClick={() => setActiveBrush(sub)}
                       style={{
-                        background: "rgba(255, 255, 255, 0.03)",
-                        border: "1px solid rgba(255, 255, 255, 0.08)",
+                        background: activeBrush === sub ? "rgba(6, 182, 212, 0.12)" : "rgba(255, 255, 255, 0.02)",
+                        border: activeBrush === sub ? "1px solid #06b6d4" : "1px solid rgba(255, 255, 255, 0.08)",
                         borderRadius: "20px",
-                        padding: "2px 8px",
-                        fontSize: "0.68rem",
+                        padding: "1px 7px",
+                        fontSize: "0.65rem",
                         color: "var(--color-text-primary)",
                         cursor: "pointer",
-                        transition: "all 0.15s ease",
-                        outline: "none"
-                      }}
-                      onMouseOver={(e) => {
-                        e.target.style.background = "rgba(var(--color-primary-rgb), 0.1)";
-                        e.target.style.borderColor = "var(--color-primary)";
-                      }}
-                      onMouseOut={(e) => {
-                        e.target.style.background = "rgba(255, 255, 255, 0.03)";
-                        e.target.style.borderColor = "rgba(255, 255, 255, 0.08)";
+                        transition: "all 0.1s"
                       }}
                     >
-                      {word}
+                      {sub}
                     </button>
                   ))}
                 </div>
               </div>
-            )}
 
-            <div style={{ display: "flex", gap: "1rem", marginTop: "0.1rem" }}>
+            </div>
+
+            {/* Ações Inferiores */}
+            <div style={{ display: "flex", gap: "1rem", marginTop: "0.1rem", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: "0.6rem" }}>
               <button 
                 type="button" 
                 className="btn-secondary" 
-                onClick={() => { setStep(1); setFile(null); setGeneratedSchedule(null); setDetectedWords([]); setFocusedInput(null); }}
-                style={{ flex: 1, padding: "0.6rem" }}
+                onClick={() => { setStep(1); setFile(null); setGeneratedSchedule(null); setDetectedWords([]); }}
+                style={{ flex: 1, padding: "0.5rem" }}
               >
-                Voltar a Carregar
+                Voltar a Carregar Print
               </button>
               <button 
                 type="button" 
                 className="btn-primary" 
                 onClick={handleConfirmImport}
-                style={{ flex: 2, padding: "0.6rem", fontWeight: "700" }}
+                style={{ flex: 2, padding: "0.5rem", fontWeight: "700" }}
               >
-                Confirmar e Injetar Grelha
+                Confirmar e Aplicar na Agenda
               </button>
             </div>
+
           </div>
         )}
       </div>
