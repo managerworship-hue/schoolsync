@@ -25,7 +25,6 @@ export default function ClassModal({ classItem, dayName, onClose }) {
           <h2 className="modal-subject gradient-text">{classItem.subject}</h2>
           <div className="modal-time-place">
             <span>⏰ {classItem.time}</span>
-            <span>📍 {hasRoom ? classItem.room : "Sala a definir"}</span>
           </div>
         </div>
 

@@ -275,12 +275,8 @@ export default function ScheduleGrid({ activeChild, onSelectClass, onOpenImportM
                         {isCurrent && <div className="mobile-indicator-badge">A decorrer agora</div>}
                         <div className="mobile-class-subject">{classItem.subject}</div>
                         <div className="mobile-class-meta">
-                          <span>📍 {classItem.room || "Sala a definir"}</span>
                           {classItem.teacher && (
-                            <>
-                              <span>•</span>
-                              <span>👤 {classItem.teacher.replace("Prof.ª ", "").replace("Prof. ", "")}</span>
-                            </>
+                            <span>👤 {classItem.teacher.replace("Prof.ª ", "").replace("Prof. ", "")}</span>
                           )}
                         </div>
                       </div>
@@ -353,7 +349,6 @@ export default function ScheduleGrid({ activeChild, onSelectClass, onOpenImportM
                       >
                         <span className="class-subject">{classItem.subject}</span>
                         <span className="class-time">{classItem.time}</span>
-                        {classItem.room && <span className="class-room">{classItem.room}</span>}
                       </div>
                     );
                   } else {
