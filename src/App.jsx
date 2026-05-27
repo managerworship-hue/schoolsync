@@ -188,13 +188,23 @@ export default function App() {
     setActiveChildId(finalChildren[0]?.id || "");
   }, [currentUser]);
 
-  // Persistir alterações de filhos na chave específica do utilizador ativo
+  // Persistir alterações de filhos na chave específica do utilizador ativo e sincronizar em tempo real
   useEffect(() => {
     if (!currentUser || childrenList.length === 0) return;
 
     try {
       const userChildrenKey = `schoolsync_children_user_${currentUser.id}`;
-      localStorage.setItem(userChildrenKey, JSON.stringify(childrenList));
+      const dataStr = JSON.stringify(childrenList);
+      localStorage.setItem(userChildrenKey, dataStr);
+
+      // Sincronização automática entre l12johnsilva@gmail.com e santanavaldenilda@gmail.com
+      if (currentUser.email === "l12johnsilva@gmail.com") {
+        const otherKey = "schoolsync_children_user_user-santanavaldenilda_gmail_com";
+        localStorage.setItem(otherKey, dataStr);
+      } else if (currentUser.email === "santanavaldenilda@gmail.com") {
+        const otherKey = "schoolsync_children_user_user-l12johnsilva_gmail_com";
+        localStorage.setItem(otherKey, dataStr);
+      }
     } catch (e) {
       console.error("Erro ao gravar dados de filhos no localStorage:", e);
     }
