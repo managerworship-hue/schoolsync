@@ -254,7 +254,8 @@ export default function ScheduleGrid({ activeChild, onSelectClass, onOpenImportM
                       className={`mobile-class-row glow-effect ${isCurrent ? "active" : ""}`}
                       onClick={() => onSelectClass(classItem, dayName)}
                       style={{
-                        borderLeftColor: "var(--color-primary)",
+                        borderLeftColor: classItem.subject === "Intervalo" ? "#10b981" : "var(--color-primary)",
+                        background: classItem.subject === "Intervalo" ? "rgba(16,185,129,0.05)" : "",
                       }}
                     >
                       {/* Eixo da hora (Esquerda) */}
@@ -340,7 +341,9 @@ export default function ScheduleGrid({ activeChild, onSelectClass, onOpenImportM
                         className={`class-card glow-effect ${isCurrent ? "current-class" : ""}`}
                         onClick={() => onSelectClass(classItem, day.name)}
                         style={{
-                          borderLeftColor: "var(--color-primary)",
+                          borderLeftColor: classItem.subject === "Intervalo" ? "#10b981" : "var(--color-primary)",
+                          background: classItem.subject === "Intervalo" ? "rgba(16,185,129,0.08)" : (isCurrent ? "rgba(6,182,212,0.12)" : "rgba(255,255,255,0.02)"),
+                          borderColor: classItem.subject === "Intervalo" ? (isCurrent ? "rgba(16,185,129,0.5)" : "rgba(16,185,129,0.15)") : ""
                         }}
                       >
                         <span className="class-subject">{classItem.subject}</span>

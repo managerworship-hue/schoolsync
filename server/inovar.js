@@ -90,8 +90,9 @@ export async function scrapeInovarSchedule(schoolUrl, username, password) {
     return parseInovarHTML(scheduleRes.data);
 
   } catch (error) {
-    console.error('[Inovar Scraper Error]', error.message);
-    throw new Error('Falha na comunicação com a escola. Verifique o URL ou se a escola tem proteção anti-robôs.');
+    console.error('[Inovar Scraper Error Detalhado]', error);
+    const detail = error.response ? `(HTTP ${error.response.status})` : error.message;
+    throw new Error(`Falha na comunicação: ${detail}`);
   }
 }
 
