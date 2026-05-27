@@ -27,7 +27,7 @@ export default function ChildSelector({ childrenList, activeChildId, onSelectChi
     setShowAddForm(false);
   };
 
-  const activeChild = childrenList.find(c => c.id === activeChildId) || childrenList[0];
+  const activeChild = childrenList.find(c => c.id === activeChildId) || childrenList[0] || { id: "default", name: "Estudante", grade: "2025/2026", theme: "lucas" };
 
   return (
     <div className="glass-panel child-selector-container">

@@ -6,15 +6,29 @@ import ClassModal from "./components/ClassModal";
 import { INITIAL_CHILDREN, INITIAL_TASKS } from "./data/schoolData";
 
 export default function App() {
-  // Inicialização de estado carregando do localStorage se existir
+  // Inicialização de estado carregando de forma ultra-segura do localStorage (evita crashes no iOS PWA/Private Mode)
   const [childrenList, setChildrenList] = useState(() => {
-    const saved = localStorage.getItem("schoolsync_children");
-    return saved ? JSON.parse(saved) : INITIAL_CHILDREN;
+    try {
+      const saved = localStorage.getItem("schoolsync_children");
+      if (saved && saved !== "undefined") {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error("Erro ao ler children do localStorage:", e);
+    }
+    return INITIAL_CHILDREN;
   });
 
   const [tasks, setTasks] = useState(() => {
-    const saved = localStorage.getItem("schoolsync_tasks");
-    return saved ? JSON.parse(saved) : INITIAL_TASKS;
+    try {
+      const saved = localStorage.getItem("schoolsync_tasks");
+      if (saved && saved !== "undefined") {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error("Erro ao ler tasks do localStorage:", e);
+    }
+    return INITIAL_TASKS;
   });
 
   const [activeChildId, setActiveChildId] = useState(() => {
@@ -24,24 +38,40 @@ export default function App() {
   const [selectedClass, setSelectedClass] = useState(null);
   const [selectedDayName, setSelectedDayName] = useState("");
 
-  // Persistir crianças e tarefas sempre que alteradas
+  // Persistir crianças e tarefas de forma segura contra exceções de quota ou segurança no iOS Safari
   useEffect(() => {
-    localStorage.setItem("schoolsync_children", JSON.stringify(childrenList));
+    try {
+      localStorage.setItem("schoolsync_children", JSON.stringify(childrenList));
+    } catch (e) {
+      console.error("Erro ao gravar children no localStorage:", e);
+    }
   }, [childrenList]);
 
   useEffect(() => {
-    localStorage.setItem("schoolsync_tasks", JSON.stringify(tasks));
+    try {
+      localStorage.setItem("schoolsync_tasks", JSON.stringify(tasks));
+    } catch (e) {
+      console.error("Erro ao gravar tasks no localStorage:", e);
+    }
   }, [tasks]);
 
-  // Atualizar tema de cor no body dinamicamente
+  // Atualizar tema de cor no body dinamicamente com salvaguarda
   useEffect(() => {
     const activeChild = childrenList.find((c) => c.id === activeChildId);
-    if (activeChild) {
+    if (activeChild && activeChild.theme) {
       document.body.setAttribute("data-theme", activeChild.theme);
     }
   }, [activeChildId, childrenList]);
 
-  const activeChild = childrenList.find((c) => c.id === activeChildId) || childrenList[0];
+  // Garantia absoluta de que activeChild nunca é nulo ou indefinido para evitar ecrã preto no React
+  const activeChild = childrenList.find((c) => c.id === activeChildId) || childrenList[0] || {
+    id: "default",
+    name: "Estudante",
+    grade: "2025/2026",
+    theme: "lucas",
+    schedule: { 1: [], 2: [], 3: [], 4: [], 5: [] }
+  };
+  
   const activeChildTasks = tasks.filter((t) => t.childId === activeChildId);
 
   // Manipuladores de estado para Tarefas
