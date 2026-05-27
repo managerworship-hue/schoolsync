@@ -108,51 +108,9 @@ export default function App() {
   const [activeChildId, setActiveChildId] = useState("");
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Efeito executado uma única vez para limpar todas as chaves antigas e garantir independência
+  // Efeito executado uma única vez ao iniciar a aplicação para migrações
   useEffect(() => {
     try {
-      const hasReset = localStorage.getItem("schoolsync_db_reset_v4");
-      if (!hasReset) {
-        // 1. Limpar todas as chaves antigas de filhos/horários que começam com schoolsync_children
-        Object.keys(localStorage).forEach((key) => {
-          if (key.startsWith("schoolsync_children")) {
-            localStorage.removeItem(key);
-          }
-        });
-
-        // 2. Eliminar totalmente o utilizador l12johnsilva@gmail.com da lista de utilizadores registados
-        const savedUsers = localStorage.getItem("schoolsync_users");
-        if (savedUsers) {
-          try {
-            const users = JSON.parse(savedUsers);
-            if (Array.isArray(users)) {
-              const filteredUsers = users.filter((u) => u.email !== "l12johnsilva@gmail.com");
-              localStorage.setItem("schoolsync_users", JSON.stringify(filteredUsers));
-              console.log("SchoolSync: Utilizador l12johnsilva@gmail.com eliminado da base de dados.");
-            }
-          } catch (err) {
-            console.error("Erro ao limpar utilizador l12johnsilva@gmail.com:", err);
-          }
-        }
-
-        // 3. Se o utilizador logado for o l12johnsilva@gmail.com, forçar logout imediato
-        const savedCurrentUser = localStorage.getItem("schoolsync_current_user");
-        if (savedCurrentUser) {
-          try {
-            const parsed = JSON.parse(savedCurrentUser);
-            if (parsed && parsed.email === "l12johnsilva@gmail.com") {
-              localStorage.removeItem("schoolsync_current_user");
-              window.location.reload();
-            }
-          } catch (err) {
-            console.error(err);
-          }
-        }
-
-        localStorage.setItem("schoolsync_db_reset_v4", "true");
-        console.log("SchoolSync: Base de dados reiniciada com sucesso (V4).");
-      }
-
       // --- MIGRAÇÃO: Copiar dados de lejonzsilva@gmail.com para santanavaldenilda@gmail.com ---
       // Esta cópia substitui totalmente quaisquer dados existentes no destino.
       const hasMigrated = localStorage.getItem("schoolsync_migration_lejon_to_valdenilda_v1");
@@ -168,7 +126,7 @@ export default function App() {
         localStorage.setItem("schoolsync_migration_lejon_to_valdenilda_v1", "true");
       }
     } catch (e) {
-      console.error("Erro ao efetuar reset/migração da base de dados:", e);
+      console.error("Erro ao efetuar migração de dados:", e);
     }
   }, []);
 
