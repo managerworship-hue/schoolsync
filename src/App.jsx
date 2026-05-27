@@ -7,6 +7,84 @@ import ImportScheduleModal from "./components/ImportScheduleModal";
 import { INITIAL_CHILDREN } from "./data/schoolData";
 
 export default function App() {
+  // Pull-to-Refresh States
+  const [pullDistance, setPullDistance] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Efeito Pull-to-Refresh para iOS e Android
+  useEffect(() => {
+    let startY = 0;
+    let active = false;
+
+    const handleTouchStart = (e) => {
+      // Ativa apenas no topo absoluto da página e com 1 dedo
+      if (window.scrollY === 0 && e.touches.length === 1) {
+        startY = e.touches[0].pageY;
+        active = true;
+      }
+    };
+
+    const handleTouchMove = (e) => {
+      if (!active || refreshing) return;
+      
+      const currentY = e.touches[0].pageY;
+      const diff = currentY - startY;
+
+      if (diff > 0) {
+        // Bloquear recarga de sistema padrão para permitir a nossa animação nativa customizada
+        if (e.cancelable) e.preventDefault();
+        
+        // Aplicar resistência de arrasto
+        const resistance = Math.min(diff * 0.45, 80);
+        setPullDistance(resistance);
+      } else {
+        active = false;
+        setPullDistance(0);
+      }
+    };
+
+    const handleTouchEnd = () => {
+      if (!active || refreshing) return;
+      active = false;
+
+      // Limiar de ativação a 60px
+      if (pullDistance >= 60) {
+        setRefreshing(true);
+        setPullDistance(60);
+        
+        // Forçar atualização do Service Worker e recarregar a página de forma limpa
+        setTimeout(() => {
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready.then((reg) => {
+              console.log("SchoolSync PWA: A atualizar recursos de cache...");
+              reg.update().then(() => {
+                window.location.reload();
+              }).catch(() => {
+                window.location.reload();
+              });
+            }).catch(() => {
+              window.location.reload();
+            });
+          } else {
+            window.location.reload();
+          }
+        }, 850);
+      } else {
+        setPullDistance(0);
+      }
+    };
+
+    window.addEventListener("touchstart", handleTouchStart, { passive: false });
+    window.addEventListener("touchmove", handleTouchMove, { passive: false });
+    window.addEventListener("touchend", handleTouchEnd);
+
+    return () => {
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [pullDistance, refreshing]);
+
   // Estado do utilizador com sessão ativa
   const [currentUser, setCurrentUser] = useState(() => {
     try {
@@ -241,13 +319,71 @@ export default function App() {
     );
   };
 
+  // Markup do Indicador Pull-to-Refresh Nativo (iOS / Android)
+  const pullToRefreshIndicator = (pullDistance > 0 || refreshing) && (
+    <div 
+      style={{
+        position: "fixed",
+        top: `${Math.max(12, pullDistance - 20)}px`,
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 9999999,
+        background: "rgba(15, 23, 42, 0.85)",
+        backdropFilter: "blur(12px)",
+        border: "1px solid rgba(255, 255, 255, 0.1)",
+        boxShadow: "0 4px 20px rgba(0, 0, 0, 0.4), 0 0 15px rgba(16, 185, 129, 0.25)",
+        borderRadius: "50%",
+        width: "40px",
+        height: "40px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        opacity: Math.min(pullDistance / 50, 1),
+        transition: refreshing ? "none" : "top 0.15s ease-out, opacity 0.15s ease-out"
+      }}
+    >
+      <svg 
+        xmlns="http://www.w3.org/2000/svg" 
+        viewBox="0 0 24 24" 
+        fill="none" 
+        stroke="currentColor" 
+        strokeWidth="3.5" 
+        strokeLinecap="round" 
+        strokeLinejoin="round" 
+        style={{
+          width: "20px",
+          height: "20px",
+          color: refreshing ? "#10b981" : "#06b6d4",
+          transform: `rotate(${pullDistance * 6.5}deg)`,
+          animation: refreshing ? "spinPull 0.8s linear infinite" : "none",
+          transition: refreshing ? "none" : "transform 0.1s linear"
+        }}
+      >
+        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+      </svg>
+      
+      <style>{`
+        @keyframes spinPull {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
+    </div>
+  );
+
   // Se não estiver autenticado, exibe o ecrã de Login/Registo
   if (!currentUser) {
-    return <AuthScreen onLoginSuccess={handleLoginSuccess} />;
+    return (
+      <>
+        {pullToRefreshIndicator}
+        <AuthScreen onLoginSuccess={handleLoginSuccess} />
+      </>
+    );
   }
 
   return (
     <div className="app-container">
+      {pullToRefreshIndicator}
       {/* Seletor Superior de Perfil */}
       <ChildSelector
         childrenList={childrenList}
