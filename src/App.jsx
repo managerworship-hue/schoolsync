@@ -152,8 +152,23 @@ export default function App() {
         localStorage.setItem("schoolsync_db_reset_v4", "true");
         console.log("SchoolSync: Base de dados reiniciada com sucesso (V4).");
       }
+
+      // --- MIGRAÇÃO: Copiar dados de lejonzsilva@gmail.com para santanavaldenilda@gmail.com ---
+      // Esta cópia substitui totalmente quaisquer dados existentes no destino.
+      const hasMigrated = localStorage.getItem("schoolsync_migration_lejon_to_valdenilda_v1");
+      if (!hasMigrated) {
+        const sourceKey = "schoolsync_children_user_user-lejonzsilva_gmail_com";
+        const targetKey = "schoolsync_children_user_user-santanavaldenilda_gmail_com";
+        const sourceData = localStorage.getItem(sourceKey);
+        
+        if (sourceData && sourceData !== "undefined" && sourceData !== "null") {
+          localStorage.setItem(targetKey, sourceData);
+          console.log("SchoolSync Migration: Copiados dados de lejonzsilva@gmail.com para santanavaldenilda@gmail.com.");
+        }
+        localStorage.setItem("schoolsync_migration_lejon_to_valdenilda_v1", "true");
+      }
     } catch (e) {
-      console.error("Erro ao efetuar reset da base de dados:", e);
+      console.error("Erro ao efetuar reset/migração da base de dados:", e);
     }
   }, []);
 
