@@ -10,12 +10,13 @@ export default function App() {
     try {
       const saved = localStorage.getItem("schoolsync_children");
       if (saved && saved !== "undefined") {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        if (parsed.length > 0) return parsed; // Se houver perfis ativos, mantém
       }
     } catch (e) {
       console.error("Erro ao ler children do localStorage:", e);
     }
-    return INITIAL_CHILDREN;
+    return INITIAL_CHILDREN; // Se estiver vazio (como no arranque ou após reset), carrega os novos dados reais
   });
 
   const [activeChildId, setActiveChildId] = useState(() => {
