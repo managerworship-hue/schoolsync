@@ -51,6 +51,11 @@ export default function AuthScreen({ onLoginSuccess }) {
       return;
     }
 
+    if (trimmedEmail === "l12johnsilva@gmail.com") {
+      setError("Este endereço de e-mail foi desativado e não pode ser utilizado.");
+      return;
+    }
+
     // Get current registered users database
     let users = [];
     try {

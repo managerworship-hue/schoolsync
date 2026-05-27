@@ -4,7 +4,6 @@ import ScheduleGrid from "./components/ScheduleGrid";
 import ClassModal from "./components/ClassModal";
 import AuthScreen from "./components/AuthScreen";
 import ImportScheduleModal from "./components/ImportScheduleModal";
-import { INITIAL_CHILDREN } from "./data/schoolData";
 
 export default function App() {
   // Pull-to-Refresh States
@@ -90,7 +89,13 @@ export default function App() {
     try {
       const saved = localStorage.getItem("schoolsync_current_user");
       if (saved && saved !== "undefined") {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        // Segurança extra: se for o utilizador eliminado, não deixa iniciar sessão
+        if (parsed && parsed.email === "l12johnsilva@gmail.com") {
+          localStorage.removeItem("schoolsync_current_user");
+          return null;
+        }
+        return parsed;
       }
     } catch (e) {
       console.error("Erro ao ler utilizador ativo do localStorage:", e);
@@ -101,20 +106,51 @@ export default function App() {
   // Lista de filhos carregada dinamicamente com base no utilizador com sessão ativa
   const [childrenList, setChildrenList] = useState([]);
   const [activeChildId, setActiveChildId] = useState("");
+  const [isLoaded, setIsLoaded] = useState(false);
 
   // Efeito executado uma única vez para limpar todas as chaves antigas e garantir independência
   useEffect(() => {
     try {
-      const hasReset = localStorage.getItem("schoolsync_db_reset_v2");
+      const hasReset = localStorage.getItem("schoolsync_db_reset_v4");
       if (!hasReset) {
-        // Limpar todas as chaves antigas que começam com schoolsync_children
+        // 1. Limpar todas as chaves antigas de filhos/horários que começam com schoolsync_children
         Object.keys(localStorage).forEach((key) => {
           if (key.startsWith("schoolsync_children")) {
             localStorage.removeItem(key);
           }
         });
-        localStorage.setItem("schoolsync_db_reset_v2", "true");
-        console.log("SchoolSync: Base de dados reiniciada com sucesso para garantir independência total de utilizadores.");
+
+        // 2. Eliminar totalmente o utilizador l12johnsilva@gmail.com da lista de utilizadores registados
+        const savedUsers = localStorage.getItem("schoolsync_users");
+        if (savedUsers) {
+          try {
+            const users = JSON.parse(savedUsers);
+            if (Array.isArray(users)) {
+              const filteredUsers = users.filter((u) => u.email !== "l12johnsilva@gmail.com");
+              localStorage.setItem("schoolsync_users", JSON.stringify(filteredUsers));
+              console.log("SchoolSync: Utilizador l12johnsilva@gmail.com eliminado da base de dados.");
+            }
+          } catch (err) {
+            console.error("Erro ao limpar utilizador l12johnsilva@gmail.com:", err);
+          }
+        }
+
+        // 3. Se o utilizador logado for o l12johnsilva@gmail.com, forçar logout imediato
+        const savedCurrentUser = localStorage.getItem("schoolsync_current_user");
+        if (savedCurrentUser) {
+          try {
+            const parsed = JSON.parse(savedCurrentUser);
+            if (parsed && parsed.email === "l12johnsilva@gmail.com") {
+              localStorage.removeItem("schoolsync_current_user");
+              window.location.reload();
+            }
+          } catch (err) {
+            console.error(err);
+          }
+        }
+
+        localStorage.setItem("schoolsync_db_reset_v4", "true");
+        console.log("SchoolSync: Base de dados reiniciada com sucesso (V4).");
       }
     } catch (e) {
       console.error("Erro ao efetuar reset da base de dados:", e);
@@ -126,18 +162,19 @@ export default function App() {
     if (!currentUser) {
       setChildrenList([]);
       setActiveChildId("");
+      setIsLoaded(false);
       return;
     }
 
     const userChildrenKey = `schoolsync_children_user_${currentUser.id}`;
-    let loadedChildren = null;
+    let loadedChildren = [];
 
     try {
-      // 1. Verificar se já existem dados guardados para este utilizador específico
+      // Verificar se já existem dados guardados para este utilizador específico
       const saved = localStorage.getItem(userChildrenKey);
-      if (saved && saved !== "undefined") {
+      if (saved && saved !== "undefined" && saved !== "null") {
         const parsed = JSON.parse(saved);
-        if (parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           loadedChildren = parsed;
         }
       }
@@ -145,54 +182,24 @@ export default function App() {
       console.error("Erro ao ler dados de filhos no carregamento:", e);
     }
 
-    const isSpecialUser = currentUser.email === "l12johnsilva@gmail.com" || currentUser.email === "santanavaldenilda@gmail.com";
-
-    // 2. Se ainda assim não houver nada, definir o estado inicial
-    if (!loadedChildren) {
-      if (isSpecialUser) {
-        loadedChildren = INITIAL_CHILDREN;
-      } else {
-        loadedChildren = []; // Contas novas de outros utilizadores arrancarão em branco
-      }
-    }
-
-    // 3. Apenas para os administradores, sincronizamos os perfis padrão (INITIAL_CHILDREN) se não existirem ainda
-    let finalChildren = [...loadedChildren];
-    if (isSpecialUser) {
-      INITIAL_CHILDREN.forEach((initialChild) => {
-        const index = finalChildren.findIndex((c) => c.id === initialChild.id);
-        if (index === -1) {
-          // Garante que os perfis padrão estão sempre lá se não existirem ainda no localStorage
-          finalChildren.push(initialChild);
-        }
-      });
-    }
-
-    setChildrenList(finalChildren);
-    setActiveChildId(finalChildren[0]?.id || "");
+    // Todos os utilizadores arrancam em branco por defeito
+    setChildrenList(loadedChildren);
+    setActiveChildId(loadedChildren[0]?.id || "");
+    setIsLoaded(true);
   }, [currentUser]);
 
-  // Persistir alterações de filhos na chave específica do utilizador ativo e sincronizar em tempo real
+  // Persistir alterações de filhos na chave específica do utilizador ativo
   useEffect(() => {
-    if (!currentUser || childrenList.length === 0) return;
+    if (!currentUser || !isLoaded) return;
 
     try {
       const userChildrenKey = `schoolsync_children_user_${currentUser.id}`;
       const dataStr = JSON.stringify(childrenList);
       localStorage.setItem(userChildrenKey, dataStr);
-
-      // Sincronização automática entre l12johnsilva@gmail.com e santanavaldenilda@gmail.com
-      if (currentUser.email === "l12johnsilva@gmail.com") {
-        const otherKey = "schoolsync_children_user_user-santanavaldenilda_gmail_com";
-        localStorage.setItem(otherKey, dataStr);
-      } else if (currentUser.email === "santanavaldenilda@gmail.com") {
-        const otherKey = "schoolsync_children_user_user-l12johnsilva_gmail_com";
-        localStorage.setItem(otherKey, dataStr);
-      }
     } catch (e) {
       console.error("Erro ao gravar dados de filhos no localStorage:", e);
     }
-  }, [childrenList, currentUser]);
+  }, [childrenList, currentUser, isLoaded]);
 
   const [selectedClass, setSelectedClass] = useState(null);
   const [selectedDayName, setSelectedDayName] = useState("");
@@ -334,16 +341,6 @@ export default function App() {
       }
       return filtered;
     });
-
-    // Se eliminarmos o último perfil, limpamos explicitamente o item de localStorage
-    if (childrenList.length === 1) {
-      try {
-        const userChildrenKey = `schoolsync_children_user_${currentUser.id}`;
-        localStorage.removeItem(userChildrenKey);
-      } catch (e) {
-        console.error("Erro ao remover chave de filhos do localStorage:", e);
-      }
-    }
   };
 
   // Callback para limpar todo o horário da criança ativa (deixa a grelha em branco)
