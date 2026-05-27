@@ -46,21 +46,62 @@ export default function AuthScreen({ onLoginSuccess }) {
     let users = [];
     try {
       const savedUsers = localStorage.getItem("schoolsync_users");
-      if (savedUsers) {
-        users = JSON.parse(savedUsers);
+      if (savedUsers && savedUsers !== "undefined" && savedUsers !== "null") {
+        const parsed = JSON.parse(savedUsers);
+        if (Array.isArray(parsed)) {
+          users = parsed;
+        }
       }
     } catch (e) {
       console.error("Erro ao ler base de utilizadores:", e);
     }
 
+    // Deterministic user ID generation helper
+    const getDeterministicUserId = (emailStr) => {
+      return `user-${emailStr.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+    };
+
     if (mode === "login") {
       // Find matching user
-      const user = users.find(
-        (u) => u.email === trimmedEmail && u.password === trimmedPassword
-      );
+      let user = users.find((u) => u.email === trimmedEmail);
 
       if (user) {
-        // Success
+        // Se a palavra-passe não coincidir
+        if (user.password !== trimmedPassword) {
+          // Se for o administrador principal, permitimos atualizar a palavra-passe para evitar bloqueios
+          if (trimmedEmail === "l12johnsilva@gmail.com") {
+            user.password = trimmedPassword;
+            try {
+              localStorage.setItem("schoolsync_users", JSON.stringify(users));
+            } catch (e) {
+              console.error("Erro ao atualizar palavra-passe do admin:", e);
+            }
+          } else {
+            setError("E-mail ou palavra-passe incorretos.");
+            return;
+          }
+        }
+      } else {
+        // Se o utilizador não existir e for o administrador principal, criamo-lo dinamicamente
+        if (trimmedEmail === "l12johnsilva@gmail.com") {
+          const newUser = {
+            id: getDeterministicUserId(trimmedEmail),
+            name: "John Silva",
+            email: trimmedEmail,
+            password: trimmedPassword
+          };
+          users.push(newUser);
+          try {
+            localStorage.setItem("schoolsync_users", JSON.stringify(users));
+            user = newUser;
+          } catch (e) {
+            console.error("Erro ao auto-registar admin:", e);
+          }
+        }
+      }
+
+      if (user) {
+        // Sucesso no login
         onLoginSuccess({ id: user.id, name: user.name, email: user.email }, rememberMe);
       } else {
         setError("E-mail ou palavra-passe incorretos.");
@@ -83,15 +124,28 @@ export default function AuthScreen({ onLoginSuccess }) {
       }
 
       // Check if email already registered
-      const emailExists = users.some((u) => u.email === trimmedEmail);
-      if (emailExists) {
+      const existingUserIndex = users.findIndex((u) => u.email === trimmedEmail);
+      if (existingUserIndex !== -1) {
+        // Se for o admin, atualizamos os dados e permitimos login direto de forma transparente
+        if (trimmedEmail === "l12johnsilva@gmail.com") {
+          users[existingUserIndex].name = trimmedName;
+          users[existingUserIndex].password = trimmedPassword;
+          try {
+            localStorage.setItem("schoolsync_users", JSON.stringify(users));
+            const updatedUser = users[existingUserIndex];
+            onLoginSuccess({ id: updatedUser.id, name: updatedUser.name, email: updatedUser.email }, rememberMe);
+            return;
+          } catch (e) {
+            console.error("Erro ao atualizar dados do admin no registo:", e);
+          }
+        }
         setError("Este endereço de e-mail já está registado.");
         return;
       }
 
-      // Create new user
+      // Create new user with deterministic ID
       const newUser = {
-        id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: getDeterministicUserId(trimmedEmail),
         name: trimmedName,
         email: trimmedEmail,
         password: trimmedPassword,
