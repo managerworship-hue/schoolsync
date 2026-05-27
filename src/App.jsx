@@ -153,6 +153,43 @@ export default function App() {
     setActiveChildId(newChild.id);
   };
 
+  // Callback para excluir o perfil de um filho
+  const handleDeleteChild = (childId) => {
+    setChildrenList((prevList) => {
+      const filtered = prevList.filter((child) => child.id !== childId);
+      // Atualiza o perfil ativo caso o perfil excluído fosse o selecionado
+      if (activeChildId === childId) {
+        setActiveChildId(filtered[0]?.id || "");
+      }
+      return filtered;
+    });
+
+    // Se eliminarmos o último perfil, limpamos explicitamente o item de localStorage
+    if (childrenList.length === 1) {
+      try {
+        const userChildrenKey = `schoolsync_children_user_${currentUser.id}`;
+        localStorage.removeItem(userChildrenKey);
+      } catch (e) {
+        console.error("Erro ao remover chave de filhos do localStorage:", e);
+      }
+    }
+  };
+
+  // Callback para limpar todo o horário da criança ativa (deixa a grelha em branco)
+  const handleClearSchedule = () => {
+    setChildrenList((prevList) =>
+      prevList.map((child) => {
+        if (child.id === activeChildId) {
+          return {
+            ...child,
+            schedule: { 1: [], 2: [], 3: [], 4: [], 5: [] }
+          };
+        }
+        return child;
+      })
+    );
+  };
+
   // Estado para controlar a exibição do Modal de Importação de Horário
   const [showImportModal, setShowImportModal] = useState(false);
 
@@ -186,6 +223,7 @@ export default function App() {
         onAddChild={handleAddChild}
         currentUser={currentUser}
         onLogout={handleLogout}
+        onDeleteChild={handleDeleteChild}
       />
 
       <div className="dashboard-grid">
@@ -197,6 +235,7 @@ export default function App() {
             setSelectedDayName(dayName);
           }}
           onOpenImportModal={() => setShowImportModal(true)}
+          onClearSchedule={handleClearSchedule}
         />
       </div>
 

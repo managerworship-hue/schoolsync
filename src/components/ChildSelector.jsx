@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-export default function ChildSelector({ childrenList, activeChildId, onSelectChild, onAddChild, currentUser, onLogout }) {
+export default function ChildSelector({ childrenList, activeChildId, onSelectChild, onAddChild, currentUser, onLogout, onDeleteChild }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [name, setName] = useState("");
   const [year, setYear] = useState(""); // Ex: "7"
@@ -47,17 +47,55 @@ export default function ChildSelector({ childrenList, activeChildId, onSelectChi
 
       <div className="children-list">
         {childrenList.map((child) => (
-          <button
-            key={child.id}
-            className={`child-avatar-btn glow-effect ${activeChildId === child.id ? "active" : ""}`}
-            onClick={() => onSelectChild(child.id)}
-          >
-            <span className="avatar-circle">{child.avatar}</span>
-            <div className="child-info">
-              <span className="child-name">{child.name.split(" ")[0]}</span>
-              <span className="child-grade">{child.grade}</span>
-            </div>
-          </button>
+          <div key={child.id} className="child-avatar-wrapper" style={{ position: "relative" }}>
+            <button
+              className={`child-avatar-btn glow-effect ${activeChildId === child.id ? "active" : ""}`}
+              onClick={() => onSelectChild(child.id)}
+              style={{ width: "100%" }}
+            >
+              <span className="avatar-circle">{child.avatar}</span>
+              <div className="child-info">
+                <span className="child-name">{child.name.split(" ")[0]}</span>
+                <span className="child-grade">{child.grade}</span>
+              </div>
+            </button>
+            
+            {/* Botão de Excluir Perfil - Exibido apenas se for o perfil ativo e confirmado */}
+            {activeChildId === child.id && (
+              <button
+                type="button"
+                className="btn-delete-profile"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (confirm(`Tem a certeza de que deseja eliminar o perfil e todos os horários de ${child.name}?`)) {
+                    onDeleteChild(child.id);
+                  }
+                }}
+                title={`Excluir perfil de ${child.name}`}
+                style={{
+                  position: "absolute",
+                  top: "-4px",
+                  right: "-4px",
+                  background: "#ef4444",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "50%",
+                  width: "18px",
+                  height: "18px",
+                  fontSize: "0.55rem",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  boxShadow: "0 2px 6px rgba(239, 68, 68, 0.4)",
+                  zIndex: 10,
+                  transition: "var(--transition-smooth)"
+                }}
+              >
+                🗑️
+              </button>
+            )}
+          </div>
         ))}
 
         <button 

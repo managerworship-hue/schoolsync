@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 
-export default function ScheduleGrid({ activeChild, onSelectClass, onOpenImportModal }) {
+export default function ScheduleGrid({ activeChild, onSelectClass, onOpenImportModal, onClearSchedule }) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth < 768 : false);
 
@@ -153,7 +153,7 @@ export default function ScheduleGrid({ activeChild, onSelectClass, onOpenImportM
           </p>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           {/* Botão de Re-importar na cabeceira */}
           <button
             onClick={onOpenImportModal}
@@ -175,6 +175,33 @@ export default function ScheduleGrid({ activeChild, onSelectClass, onOpenImportM
             }}
           >
             <span>📤</span> <span className="import-text-desktop">Importar Print</span>
+          </button>
+
+          {/* Botão de Limpar Horário na cabeceira */}
+          <button
+            onClick={() => {
+              if (confirm(`Tem a certeza de que deseja eliminar e limpar todo o horário de ${activeChild.name}? Isto permitirá carregar um novo do zero.`)) {
+                onClearSchedule();
+              }
+            }}
+            className="btn-clear-header"
+            title="Limpar e Excluir Horário Inserido"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              background: "rgba(239, 68, 68, 0.05)",
+              border: "1px solid rgba(239, 68, 68, 0.2)",
+              color: "#f87171",
+              padding: "0.4rem 0.8rem",
+              borderRadius: "8px",
+              fontSize: "0.78rem",
+              fontWeight: "600",
+              cursor: "pointer",
+              transition: "var(--transition-smooth)"
+            }}
+          >
+            <span>🗑️</span> <span className="clear-text-desktop">Limpar Horário</span>
           </button>
 
           <div className="current-time-badge">
