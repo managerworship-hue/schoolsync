@@ -101,7 +101,29 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
     if (e.target.files?.[0]) handleFileSelect(e.target.files[0]);
   };
 
-  // ── Análise com Gemini Vision ──────────────────────────────────────────────
+  // ── Análise com Gemini Vision (com fallback automático entre modelos) ────────
+  // Ordem: gemini-1.5-flash (maior quota gratuita) → gemini-2.0-flash-lite → gemini-2.0-flash
+  const GEMINI_MODELS = [
+    "gemini-1.5-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-2.0-flash",
+  ];
+
+  const callGemini = async (model, key, base64Data, mimeType) => {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: buildPrompt() }, { inlineData: { mimeType, data: base64Data } }] }],
+          generationConfig: { temperature: 0.1, topK: 1, topP: 1, maxOutputTokens: 4096 },
+        }),
+      }
+    );
+    return resp;
+  };
+
   const analyzeImage = async (imageFile) => {
     setStep(3);
     setAnalyzeProgress(5);
@@ -122,45 +144,45 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
 
       const mimeType = imageFile.type || "image/jpeg";
 
-      setAnalyzeProgress(40);
+      setAnalyzeProgress(35);
       setAnalyzeStatus("Gemini a ler a estrutura da tabela de horário...");
 
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { text: buildPrompt() },
-                  { inlineData: { mimeType, data: base64Data } },
-                ],
-              },
-            ],
-            generationConfig: {
-              temperature: 0.1,
-              topK: 1,
-              topP: 1,
-              maxOutputTokens: 4096,
-            },
-          }),
+      // Tenta cada modelo em sequência até um ter sucesso
+      let response = null;
+      let lastErrMsg = "";
+      for (let i = 0; i < GEMINI_MODELS.length; i++) {
+        const model = GEMINI_MODELS[i];
+        setAnalyzeStatus(`A usar modelo ${model}...`);
+        setAnalyzeProgress(35 + i * 12);
+        try {
+          response = await callGemini(model, key, base64Data, mimeType);
+          if (response.ok) break; // sucesso — sai do loop
+
+          const errData = await response.json().catch(() => ({}));
+          const errMsg = errData?.error?.message || `Erro ${response.status}`;
+
+          if (response.status === 400 && errMsg.toLowerCase().includes("api_key")) {
+            throw new Error("Chave API inválida ou expirada. Verifique a sua chave.");
+          }
+          // 429 ou 503 → tenta próximo modelo
+          lastErrMsg = errMsg;
+          console.warn(`SchoolSync: modelo ${model} falhou (${response.status}), a tentar próximo...`);
+          response = null;
+        } catch (fetchErr) {
+          if (fetchErr.message.includes("Chave API")) throw fetchErr;
+          lastErrMsg = fetchErr.message;
+          response = null;
         }
-      );
+      }
+
+      if (!response || !response.ok) {
+        throw new Error(
+          `Todos os modelos Gemini atingiram o limite de quota. Aguarde alguns minutos e tente de novo. (${lastErrMsg})`
+        );
+      }
 
       setAnalyzeProgress(75);
       setAnalyzeStatus("A processar resposta da IA...");
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        const errMsg = errData?.error?.message || `Erro ${response.status}`;
-        if (response.status === 400 && errMsg.includes("API_KEY"))
-          throw new Error("Chave API inválida ou expirada.");
-        if (response.status === 429)
-          throw new Error("Limite da API atingido. Aguarde um momento e tente de novo.");
-        throw new Error(`Erro Gemini: ${errMsg}`);
-      }
 
       const data = await response.json();
 
