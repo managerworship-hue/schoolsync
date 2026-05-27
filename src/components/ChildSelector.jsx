@@ -32,7 +32,9 @@ export default function ChildSelector({ childrenList, activeChildId, onSelectChi
   return (
     <div className="glass-panel child-selector-container">
       <div className="brand-section">
-        <div className="brand-logo">📚</div>
+        <div className="brand-logo" style={{ background: "none", overflow: "hidden", padding: 0 }}>
+          <img src="/logo.jpg" alt="Logo" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        </div>
         <div className="brand-text">
           <h1 className="gradient-text" style={{ fontSize: "1.4rem", margin: 0 }}>Horário Escolar</h1>
           <p style={{ fontSize: "0.75rem", color: "var(--color-text-secondary)", margin: 0 }}>Ano Letivo: 2025/2026</p>

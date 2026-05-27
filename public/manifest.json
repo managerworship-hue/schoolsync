@@ -1,6 +1,6 @@
 {
-  "name": "SchoolSync — Horários Escolares",
-  "short_name": "SchoolSync",
+  "name": "Horário Escolar — Gestor de Horários",
+  "short_name": "Horário Escolar",
   "description": "Gestor inteligente de horários e tarefas escolares dos seus filhos",
   "start_url": "/",
   "display": "standalone",
@@ -9,9 +9,9 @@
   "theme_color": "#0b0f19",
   "icons": [
     {
-      "src": "logo.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
       "purpose": "any maskable"
     }
   ]

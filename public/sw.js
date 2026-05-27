@@ -1,8 +1,8 @@
-const CACHE_NAME = "schoolsync-cache-v3";
+const CACHE_NAME = "schoolsync-cache-v4";
 const PRECACHE_ASSETS = [
   "/",
   "/index.html",
-  "/logo.svg",
+  "/logo.jpg",
   "/manifest.json"
 ];
 
