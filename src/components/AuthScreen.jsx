@@ -23,7 +23,16 @@ export default function AuthScreen({ onLoginSuccess }) {
     return /\S+@\S+\.\S+/.test(emailStr);
   };
 
-  const handleSubmit = (e) => {
+  const hashPassword = async (passwordStr) => {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(passwordStr);
+    const hashBuffer = await window.crypto.subtle.digest("SHA-256", data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+    return hashHex;
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
 
@@ -66,43 +75,25 @@ export default function AuthScreen({ onLoginSuccess }) {
       let user = users.find((u) => u.email === trimmedEmail);
 
       if (user) {
-        // Se a palavra-passe não coincidir
-        if (user.password !== trimmedPassword) {
-          // Se for o administrador principal, permitimos atualizar a palavra-passe para evitar bloqueios
-          if (trimmedEmail === "l12johnsilva@gmail.com") {
-            user.password = trimmedPassword;
+        const hashedPassword = await hashPassword(trimmedPassword);
+        const isLegacyPlainMatch = user.password === trimmedPassword;
+        const isHashMatch = user.password === hashedPassword;
+
+        if (isHashMatch || isLegacyPlainMatch) {
+          // Atualização de segurança: Se for uma senha legada em texto simples, atualiza para hash SHA-256
+          if (isLegacyPlainMatch) {
+            user.password = hashedPassword;
             try {
               localStorage.setItem("schoolsync_users", JSON.stringify(users));
             } catch (e) {
-              console.error("Erro ao atualizar palavra-passe do admin:", e);
+              console.error("Erro ao atualizar palavra-passe para hash:", e);
             }
-          } else {
-            setError("E-mail ou palavra-passe incorretos.");
-            return;
           }
+          // Sucesso no login
+          onLoginSuccess({ id: user.id, name: user.name, email: user.email }, rememberMe);
+        } else {
+          setError("E-mail ou palavra-passe incorretos.");
         }
-      } else {
-        // Se o utilizador não existir e for o administrador principal, criamo-lo dinamicamente
-        if (trimmedEmail === "l12johnsilva@gmail.com") {
-          const newUser = {
-            id: getDeterministicUserId(trimmedEmail),
-            name: "John Silva",
-            email: trimmedEmail,
-            password: trimmedPassword
-          };
-          users.push(newUser);
-          try {
-            localStorage.setItem("schoolsync_users", JSON.stringify(users));
-            user = newUser;
-          } catch (e) {
-            console.error("Erro ao auto-registar admin:", e);
-          }
-        }
-      }
-
-      if (user) {
-        // Sucesso no login
-        onLoginSuccess({ id: user.id, name: user.name, email: user.email }, rememberMe);
       } else {
         setError("E-mail ou palavra-passe incorretos.");
       }
@@ -126,29 +117,19 @@ export default function AuthScreen({ onLoginSuccess }) {
       // Check if email already registered
       const existingUserIndex = users.findIndex((u) => u.email === trimmedEmail);
       if (existingUserIndex !== -1) {
-        // Se for o admin, atualizamos os dados e permitimos login direto de forma transparente
-        if (trimmedEmail === "l12johnsilva@gmail.com") {
-          users[existingUserIndex].name = trimmedName;
-          users[existingUserIndex].password = trimmedPassword;
-          try {
-            localStorage.setItem("schoolsync_users", JSON.stringify(users));
-            const updatedUser = users[existingUserIndex];
-            onLoginSuccess({ id: updatedUser.id, name: updatedUser.name, email: updatedUser.email }, rememberMe);
-            return;
-          } catch (e) {
-            console.error("Erro ao atualizar dados do admin no registo:", e);
-          }
-        }
         setError("Este endereço de e-mail já está registado.");
         return;
       }
+
+      // Hash the password securely with SHA-256
+      const hashedPassword = await hashPassword(trimmedPassword);
 
       // Create new user with deterministic ID
       const newUser = {
         id: getDeterministicUserId(trimmedEmail),
         name: trimmedName,
         email: trimmedEmail,
-        password: trimmedPassword,
+        password: hashedPassword,
       };
 
       // Add to local database

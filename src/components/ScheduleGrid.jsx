@@ -112,7 +112,7 @@ export default function ScheduleGrid({ activeChild, onSelectClass, onOpenImportM
         <span style={{ fontSize: "3.5rem", display: "block", animation: "float 4s ease-in-out infinite" }}>📅</span>
         <h2 className="gradient-text" style={{ fontSize: "1.5rem", fontWeight: "800", margin: 0 }}>Horário em Branco para {activeChild.name}</h2>
         <p style={{ color: "var(--color-text-secondary)", fontSize: "0.92rem", maxWidth: "480px", margin: "0 auto", lineHeight: "1.6" }}>
-          Este perfil ainda não tem disciplinas nem horários registados. Pode preenchê-lo instantaneamente enviando um print ou foto do horário escolar!
+          Este perfil ainda não tem disciplinas nem horários registados. Pode preenchê-lo de forma rápida e simples!
         </p>
         
         <button 
@@ -131,11 +131,11 @@ export default function ScheduleGrid({ activeChild, onSelectClass, onOpenImportM
             marginTop: "0.5rem"
           }}
         >
-          <span>📤</span> Importar Horário (Print / Foto)
+          <span>📅</span> Inserir Horário
         </button>
 
         <div style={{ display: "inline-block", padding: "0.5rem 1rem", background: "rgba(255,255,255,0.02)", borderRadius: "8px", border: "1px dashed var(--color-card-border)", fontSize: "0.78rem", color: "var(--color-text-muted)", marginTop: "0.5rem" }}>
-          Digitalização Inteligente via IA • Mapeamento automático de aulas
+          Grelha de Preenchimento Manual Inteligente • Otimizado para telemóveis
         </div>
       </div>
     );
@@ -158,7 +158,7 @@ export default function ScheduleGrid({ activeChild, onSelectClass, onOpenImportM
           <button
             onClick={onOpenImportModal}
             className="btn-import-header"
-            title="Importar Novo Print de Horário"
+            title="Inserir Novo Horário"
             style={{
               display: "flex",
               alignItems: "center",
@@ -174,7 +174,7 @@ export default function ScheduleGrid({ activeChild, onSelectClass, onOpenImportM
               transition: "var(--transition-smooth)"
             }}
           >
-            <span>📤</span> <span className="import-text-desktop">Importar Print</span>
+            <span>📅</span> <span className="import-text-desktop">Inserir Horário</span>
           </button>
 
           {/* Botão de Limpar Horário na cabeceira */}
