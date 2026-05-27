@@ -1,6 +1,17 @@
 import React from "react";
 
-export default function ChildSelector({ childrenList, activeChildId, onSelectChild, onOpenAddModal, currentUser, onLogout, onDeleteChild, onEditChild }) {
+export default function ChildSelector({ 
+  childrenList, 
+  activeChildId, 
+  onSelectChild, 
+  onOpenAddModal, 
+  currentUser, 
+  onLogout, 
+  onDeleteChild, 
+  onEditChild,
+  schoolYear = "2025/2026",
+  onEditSchoolYear
+}) {
   const handleChildClick = (child) => {
     if (activeChildId === child.id) {
       onEditChild(child);
@@ -18,7 +29,21 @@ export default function ChildSelector({ childrenList, activeChildId, onSelectChi
         </div>
         <div className="brand-text">
           <h1 className="gradient-text" style={{ fontSize: "1.4rem", margin: 0 }}>Horário Escolar</h1>
-          <p style={{ fontSize: "0.75rem", color: "var(--color-text-secondary)", margin: 0 }}>Ano Letivo: 2025/2026</p>
+          <p 
+            style={{ 
+              fontSize: "0.75rem", 
+              color: "var(--color-text-secondary)", 
+              margin: 0,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px"
+            }}
+            onClick={onEditSchoolYear}
+            title="Clique para editar o Ano Letivo"
+          >
+            Ano Letivo: <span style={{ fontWeight: "700", textDecoration: "underline var(--color-primary) 2px" }}>{schoolYear}</span> ✏️
+          </p>
         </div>
       </div>
 
@@ -128,17 +153,65 @@ export default function ChildSelector({ childrenList, activeChildId, onSelectChi
             <span className="user-welcome">Encarregado:</span>
             <span className="user-profile-name" title={currentUser.email}>{currentUser.name.split(" ")[0]}</span>
           </div>
-          <button 
-            onClick={onLogout} 
-            className="btn-logout" 
-            title="Terminar Sessão (Sair)"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="logout-icon">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            {/* Botão de Exportar Backup */}
+            <button 
+              onClick={() => {
+                const key = `schoolsync_children_user_${currentUser.id}`;
+                const data = localStorage.getItem(key);
+                if (data && data !== "[]") {
+                  navigator.clipboard.writeText(data);
+                  alert("Todos os perfis e horários foram copiados para a Área de Transferência como cópia de segurança! Pode colá-los onde desejar.");
+                } else {
+                  alert("Não existem perfis criados para exportar cópia de segurança nesta conta.");
+                }
+              }} 
+              className="btn-logout" 
+              title="Copiar Todos os Dados para a Área de Transferência (Backup)"
+              style={{ padding: "4px 8px", fontSize: "0.85rem", background: "rgba(6, 182, 212, 0.08)", border: "1px solid rgba(6, 182, 212, 0.25)", color: "#06b6d4", borderRadius: "5px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+            >
+              📋
+            </button>
+
+            {/* Botão de Importar Backup */}
+            <button 
+              onClick={() => {
+                const raw = prompt("Cole o JSON de backup aqui para restaurar os dados nesta conta:");
+                if (raw && raw.trim()) {
+                  try {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed)) {
+                      const key = `schoolsync_children_user_${currentUser.id}`;
+                      localStorage.setItem(key, raw);
+                      window.location.reload();
+                    } else {
+                      alert("Formato de dados inválido.");
+                    }
+                  } catch (e) {
+                    alert("Erro ao ler os dados colados. Certifique-se de que copiou o texto completo.");
+                  }
+                }
+              }} 
+              className="btn-logout" 
+              title="Importar / Colar Dados de Backup nesta Conta"
+              style={{ padding: "4px 8px", fontSize: "0.85rem", background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.25)", color: "#10b981", borderRadius: "5px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+            >
+              📥
+            </button>
+
+            {/* Botão de Terminar Sessão */}
+            <button 
+              onClick={onLogout} 
+              className="btn-logout" 
+              title="Terminar Sessão (Sair)"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="logout-icon">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
+          </div>
         </div>
       )}
     </div>

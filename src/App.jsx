@@ -108,12 +108,58 @@ export default function App() {
   const [activeChildId, setActiveChildId] = useState("");
   const [isLoaded, setIsLoaded] = useState(false);
 
+  // Ano Letivo configurável e sincronizado
+  const [schoolYear, setSchoolYear] = useState("2025/2026");
+
+  // Carregar Ano Letivo sempre que o utilizador ativo mudar
+  useEffect(() => {
+    if (!currentUser) return;
+    try {
+      const myKey = `schoolsync_school_year_user_${currentUser.id}`;
+      const saved = localStorage.getItem(myKey);
+      if (saved && saved !== "undefined" && saved !== "null") {
+        setSchoolYear(saved);
+      } else {
+        setSchoolYear("2025/2026");
+      }
+    } catch (e) {
+      console.error("Erro ao ler Ano Letivo:", e);
+    }
+  }, [currentUser]);
+
+  // Persistir e sincronizar em tempo real o Ano Letivo entre Lejon e Valdenilda
+  useEffect(() => {
+    if (!currentUser) return;
+    try {
+      const myKey = `schoolsync_school_year_user_${currentUser.id}`;
+      localStorage.setItem(myKey, schoolYear);
+
+      // Sincronização em tempo real entre lejonzsilva@gmail.com e santanavaldenilda@gmail.com
+      if (currentUser.email === "lejonzsilva@gmail.com") {
+        const otherKey = "schoolsync_school_year_user_user-santanavaldenilda_gmail_com";
+        localStorage.setItem(otherKey, schoolYear);
+      } else if (currentUser.email === "santanavaldenilda@gmail.com") {
+        const otherKey = "schoolsync_school_year_user_user-lejonzsilva_gmail_com";
+        localStorage.setItem(otherKey, schoolYear);
+      }
+    } catch (e) {
+      console.error("Erro ao persistir/sincronizar Ano Letivo:", e);
+    }
+  }, [schoolYear, currentUser]);
+
+  const handleEditSchoolYear = () => {
+    const val = prompt("Introduza o Ano Letivo desejado (ex: 2025/2026):", schoolYear);
+    if (val && val.trim()) {
+      setSchoolYear(val.trim());
+    }
+  };
+
   // Efeito executado uma única vez ao iniciar a aplicação para migrações
   useEffect(() => {
     try {
-      // --- MIGRAÇÃO: Copiar dados de lejonzsilva@gmail.com para santanavaldenilda@gmail.com ---
-      // Esta cópia substitui totalmente quaisquer dados existentes no destino.
-      const hasMigrated = localStorage.getItem("schoolsync_migration_lejon_to_valdenilda_v1");
+      // --- MIGRAÇÃO V2: Copiar dados de lejonzsilva@gmail.com para santanavaldenilda@gmail.com ---
+      // Esta cópia força a substituição dos dados no destino pelos mais recentes.
+      const hasMigrated = localStorage.getItem("schoolsync_migration_lejon_to_valdenilda_v2");
       if (!hasMigrated) {
         const sourceKey = "schoolsync_children_user_user-lejonzsilva_gmail_com";
         const targetKey = "schoolsync_children_user_user-santanavaldenilda_gmail_com";
@@ -121,9 +167,9 @@ export default function App() {
         
         if (sourceData && sourceData !== "undefined" && sourceData !== "null") {
           localStorage.setItem(targetKey, sourceData);
-          console.log("SchoolSync Migration: Copiados dados de lejonzsilva@gmail.com para santanavaldenilda@gmail.com.");
+          console.log("SchoolSync Migration V2: Copiados dados de lejonzsilva@gmail.com para santanavaldenilda@gmail.com.");
         }
-        localStorage.setItem("schoolsync_migration_lejon_to_valdenilda_v1", "true");
+        localStorage.setItem("schoolsync_migration_lejon_to_valdenilda_v2", "true");
       }
     } catch (e) {
       console.error("Erro ao efetuar migração de dados:", e);
@@ -455,6 +501,8 @@ export default function App() {
         onLogout={handleLogout}
         onDeleteChild={handleDeleteChild}
         onEditChild={handleStartEditChild}
+        schoolYear={schoolYear}
+        onEditSchoolYear={handleEditSchoolYear}
       />
 
       <div className="dashboard-grid">
