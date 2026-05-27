@@ -153,6 +153,39 @@ export default function App() {
     setActiveChildId(newChild.id);
   };
 
+  // Estados para criação de novo perfil (Gerido a nível de raiz para evitar bugs de Stacking Context)
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newYear, setNewYear] = useState("");
+  const [newClassroom, setNewClassroom] = useState("");
+  const [newAvatar, setNewAvatar] = useState("👦");
+  const [newTheme, setNewTheme] = useState("lucas");
+
+  const handleCreateChild = (e) => {
+    e.preventDefault();
+    if (!newName || !newYear || !newClassroom) return;
+    
+    const formattedGrade = `${newYear}° ${newClassroom.trim().toUpperCase()}`;
+    const newChild = {
+      id: newName.toLowerCase().trim().replace(/\s+/g, "-"),
+      name: newName,
+      grade: formattedGrade,
+      avatar: newAvatar,
+      theme: newTheme,
+      schedule: { 1: [], 2: [], 3: [], 4: [], 5: [] }
+    };
+
+    handleAddChild(newChild);
+    
+    // Limpar estados
+    setNewName("");
+    setNewYear("");
+    setNewClassroom("");
+    setNewAvatar("👦");
+    setNewTheme("lucas");
+    setShowAddModal(false);
+  };
+
   // Callback para excluir o perfil de um filho
   const handleDeleteChild = (childId) => {
     setChildrenList((prevList) => {
@@ -220,7 +253,7 @@ export default function App() {
         childrenList={childrenList}
         activeChildId={activeChildId}
         onSelectChild={setActiveChildId}
-        onAddChild={handleAddChild}
+        onOpenAddModal={() => setShowAddModal(true)}
         currentUser={currentUser}
         onLogout={handleLogout}
         onDeleteChild={handleDeleteChild}
@@ -255,6 +288,96 @@ export default function App() {
           onClose={() => setShowImportModal(false)}
           onImportSuccess={handleImportSuccess}
         />
+      )}
+
+      {/* Modal de Adicionar Perfil de Filho (Sobreposição Absoluta - z-index 999999) */}
+      {showAddModal && (
+        <div className="modal-overlay">
+          <div className="glass-panel modal-content" style={{ maxWidth: "400px" }}>
+            <button className="modal-close" onClick={() => setShowAddModal(false)}>×</button>
+            <div className="modal-header">
+              <h3 className="gradient-text" style={{ fontSize: "1.3rem" }}>Adicionar Perfil</h3>
+              <p style={{ fontSize: "0.78rem", color: "var(--color-text-secondary)" }}>Crie um novo perfil para consultar horários</p>
+            </div>
+            
+            <form onSubmit={handleCreateChild} className="modal-body" style={{ gap: "1rem" }}>
+              <div className="form-group">
+                <label className="form-label">Nome Completo do Filho</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  placeholder="Ex: Pedro Silva" 
+                  value={newName} 
+                  onChange={(e) => setNewName(e.target.value)}
+                  required 
+                />
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Ano Escolar (Número)</label>
+                  <input 
+                    type="number"
+                    min="1"
+                    max="12"
+                    className="form-input" 
+                    placeholder="Ex: 7" 
+                    value={newYear} 
+                    onChange={(e) => setNewYear(e.target.value)}
+                    required 
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Turma (Letra)</label>
+                  <input 
+                    type="text" 
+                    maxLength="5"
+                    className="form-input" 
+                    placeholder="Ex: C" 
+                    value={newClassroom} 
+                    onChange={(e) => setNewClassroom(e.target.value)}
+                    required 
+                  />
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Avatar</label>
+                  <select 
+                    className="form-select" 
+                    value={newAvatar} 
+                    onChange={(e) => setNewAvatar(e.target.value)}
+                  >
+                    <option value="👦">👦 Rapaz 1</option>
+                    <option value="👧">👧 Rapariga 1</option>
+                    <option value="👨‍🎓">👨‍🎓 Estudante Rapaz</option>
+                    <option value="👩‍🎓">👩‍🎓 Estudante Rapariga</option>
+                    <option value="🦁">🦁 Leão</option>
+                    <option value="🦄">🦄 Unicórnio</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Tema de Cor</label>
+                  <select 
+                    className="form-select" 
+                    value={newTheme} 
+                    onChange={(e) => setNewTheme(e.target.value)}
+                  >
+                    <option value="lucas">Ciano & Esmeralda</option>
+                    <option value="sofia">Violeta & Rosa</option>
+                  </select>
+                </div>
+              </div>
+
+              <button type="submit" className="btn-primary" style={{ marginTop: "0.5rem", width: "100%" }}>
+                Confirmar Perfil
+              </button>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -263,7 +263,20 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
     let hasValidClasses = false;
     
     Object.entries(generatedSchedule).forEach(([dayIndex, dayClasses]) => {
-      const validClasses = dayClasses.filter(c => c.subject.trim() !== "");
+      const validClasses = dayClasses
+        .filter(c => c.subject.trim() !== "")
+        .map(c => {
+          // Ignora parênteses e parênteses retos e o seu conteúdo (ex: "Matemática (T1)" -> "Matemática")
+          const cleanSubject = c.subject
+            .replace(/\(.*?\)/g, "")
+            .replace(/\[.*?\]/g, "")
+            .trim();
+          return {
+            ...c,
+            subject: cleanSubject
+          };
+        });
+        
       filtered[dayIndex] = validClasses;
       if (validClasses.length > 0) hasValidClasses = true;
     });
