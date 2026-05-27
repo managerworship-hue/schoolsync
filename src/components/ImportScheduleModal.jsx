@@ -1,367 +1,297 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
+
+// ─── Helper: converte File para base64 ───────────────────────────────────────
+const fileToBase64 = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+// ─── Prompt enviado ao Gemini para extração da tabela ────────────────────────
+const buildPrompt = () => `
+Analise esta imagem de um horário escolar português.
+Extraia EXATAMENTE o horário na estrutura JSON abaixo.
+
+Regras obrigatórias:
+- As chaves "1","2","3","4","5" representam Segunda, Terça, Quarta, Quinta e Sexta-feira.
+- "time" deve ser exatamente no formato "HH:MM - HH:MM" conforme aparece na imagem.
+- "subject" deve ser EXATAMENTE o nome da disciplina como aparece na imagem, sem abreviações e sem parênteses.
+- NÃO inclua intervalos, recreios, almoços ou períodos sem aula.
+- Se um dia não tiver aulas, coloque uma lista vazia [].
+- Responda APENAS com o JSON válido, sem explicações, sem markdown, sem código de blocos.
+
+Formato exato a devolver:
+{"1":[{"time":"08:30 - 09:20","subject":"Matemática"},...],"2":[...],"3":[...],"4":[...],"5":[...]}
+`;
 
 export default function ImportScheduleModal({ activeChild, onClose, onImportSuccess }) {
-  const [step, setStep] = useState(1); // 1 = Upload, 2 = Scanning, 3 = Preview
+  // Passos: 1=apikey, 2=upload, 3=analyzing, 4=preview
+  const [step, setStep] = useState(() => {
+    const savedKey = localStorage.getItem("schoolsync_gemini_key");
+    return savedKey ? 2 : 1;
+  });
+
+  const [apiKey, setApiKey] = useState(
+    () => localStorage.getItem("schoolsync_gemini_key") || ""
+  );
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
+
   const [dragActive, setDragActive] = useState(false);
   const [file, setFile] = useState(null);
-  const [scanProgress, setScanProgress] = useState(0);
-  const [scanStatus, setScanStatus] = useState("A inicializar motor de IA...");
-  const [generatedSchedule, setGeneratedSchedule] = useState(null);
-  const [startHour, setStartHour] = useState("08:30");
-
-  // Estados para o OCR e o assistente de "Pintar Grelha"
-  const [tesseractLoaded, setTesseractLoaded] = useState(false);
-  const [detectedWords, setDetectedWords] = useState([]);
   const [imageUrl, setImageUrl] = useState(null);
-  const [cycle, setCycle] = useState(() => {
-    let gradeNumber = 7;
-    const match = activeChild.grade.match(/(\d+)/);
-    if (match) {
-      gradeNumber = parseInt(match[1], 10);
-    }
-    return gradeNumber <= 9 ? "basico" : "secundario";
-  });
-  
-  // Pincel ativo para "pintar" as disciplinas na grelha
-  const [activeBrush, setActiveBrush] = useState("Matemática");
-  const [customBrushText, setCustomBrushText] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeProgress, setAnalyzeProgress] = useState(0);
+  const [analyzeStatus, setAnalyzeStatus] = useState("");
+  const [error, setError] = useState("");
 
-  // Carregar o Tesseract.js a partir do CDN de forma assíncrona
-  useEffect(() => {
-    if (window.Tesseract) {
-      setTesseractLoaded(true);
+  const [extractedSchedule, setExtractedSchedule] = useState(null);
+  const [editSchedule, setEditSchedule] = useState(null);
+  const [selectedDay, setSelectedDay] = useState(1);
+
+  // ── Guardar chave API ──────────────────────────────────────────────────────
+  const handleSaveApiKey = () => {
+    const trimmed = apiKeyInput.trim();
+    if (!trimmed || !trimmed.startsWith("AI")) {
+      setError("Chave API inválida. Deve começar por 'AI'. Obtenha a sua em aistudio.google.com/app/apikey");
       return;
     }
-
-    const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js";
-    script.async = true;
-    script.onload = () => {
-      console.log("SchoolSync OCR: Tesseract.js carregado com sucesso!");
-      setTesseractLoaded(true);
-    };
-    script.onerror = () => {
-      console.error("SchoolSync OCR: Falha ao carregar Tesseract.js do CDN.");
-    };
-    document.body.appendChild(script);
-  }, []);
-
-  // Inicializar grelha em branco estruturada e alinhada
-  const initializeBlankGrid = (selectedCycle, startHr) => {
-    const basicoHours = ["08:30 - 09:20", "09:25 - 10:15", "10:30 - 11:20", "11:25 - 12:15", "12:25 - 13:15", "13:30 - 14:20", "14:25 - 15:15"];
-    const secundarioHours = ["08:30 - 10:00", "10:15 - 11:45", "12:00 - 13:30", "13:45 - 15:15", "15:30 - 17:00"];
-    
-    const adjustHours = (hoursList, start) => {
-      if (start === "08:30") return hoursList;
-      
-      const parseMin = (s) => {
-        const [h, m] = s.split(":").map(Number);
-        return h * 60 + m;
-      };
-      
-      const formatMin = (m) => {
-        const h = Math.floor(m / 60) % 24;
-        const min = m % 60;
-        return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
-      };
-      
-      const originalStart = parseMin(hoursList[0].split(" - ")[0]);
-      const targetStart = parseMin(start);
-      const diff = targetStart - originalStart;
-      
-      return hoursList.map(slot => {
-        const [s, e] = slot.split(" - ");
-        return `${formatMin(parseMin(s) + diff)} - ${formatMin(parseMin(e) + diff)}`;
-      });
-    };
-
-    const finalHours = adjustHours(selectedCycle === "basico" ? basicoHours : secundarioHours, startHr);
-    
-    const blank = {};
-    for (let day = 1; day <= 5; day++) {
-      blank[day] = finalHours.map((time, idx) => ({
-        id: `cell-${day}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
-        subject: "",
-        time: time,
-        room: "",
-        teacher: "",
-        email: ""
-      }));
-    }
-    return blank;
+    localStorage.setItem("schoolsync_gemini_key", trimmed);
+    setApiKey(trimmed);
+    setError("");
+    setStep(2);
   };
 
-  // Trigger automático ao entrar no Passo 3 ou mudar o ciclo/hora
-  useEffect(() => {
-    if (step === 3 && !generatedSchedule) {
-      setGeneratedSchedule(initializeBlankGrid(cycle, startHour));
-    }
-  }, [step, cycle, startHour]);
-
-  // Recriar grelha se o utilizador alterar o ciclo ou hora de início manualmente
-  const handleGridReset = (newCycle, newStartHour) => {
-    setCycle(newCycle);
-    setStartHour(newStartHour);
-    setGeneratedSchedule(initializeBlankGrid(newCycle, newStartHour));
+  const handleChangeApiKey = () => {
+    localStorage.removeItem("schoolsync_gemini_key");
+    setApiKey("");
+    setApiKeyInput("");
+    setStep(1);
   };
 
-  // OCR de Leitura Real
-  useEffect(() => {
-    if (step !== 2) return;
-
-    let isSubscribed = true;
-
-    const runOCR = async () => {
-      let simProgress = 0;
-      const simInterval = setInterval(() => {
-        if (simProgress < 30) {
-          simProgress += 2;
-          if (isSubscribed) {
-            setScanProgress(simProgress);
-            setScanStatus("A otimizar print e contraste...");
-          }
-        } else {
-          clearInterval(simInterval);
-        }
-      }, 80);
-
-      if (window.Tesseract && file) {
-        try {
-          if (isSubscribed) {
-            setScanStatus("A carregar motor OCR...");
-          }
-
-          const worker = await window.Tesseract.createWorker({
-            logger: (m) => {
-              if (m.status === "recognizing text") {
-                const progressPercent = Math.min(30 + Math.round(m.progress * 65), 95);
-                if (isSubscribed) {
-                  setScanProgress(progressPercent);
-                  setScanStatus("A extrair texto e disciplinas do documento...");
-                }
-              }
-            }
-          });
-
-          await worker.loadLanguage("por");
-          await worker.initialize("por");
-
-          const { data: { lines } } = await worker.recognize(file);
-          await worker.terminate();
-
-          if (!isSubscribed) return;
-
-          // Processar palavras lidas para a paleta
-          const wordSet = new Set();
-          lines.forEach(line => {
-            const cleanText = line.text.trim();
-            if (cleanText.length > 2 && cleanText.length < 30) {
-              const cleaned = cleanText.replace(/[().,;:!?\[\]]/g, "").trim();
-              if (cleaned.length > 2 && !/^\d+$/.test(cleaned) && !["sala", "prof", "intervalo", "recreio", "almoco", "segunda", "terca", "quarta", "quinta", "sexta"].includes(cleaned.toLowerCase())) {
-                const capitalized = cleaned.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
-                wordSet.add(capitalized);
-              }
-            }
-          });
-
-          const uniqueWordsList = Array.from(wordSet).sort();
-          setDetectedWords(uniqueWordsList);
-          
-          // Se ler alguma disciplina, define-a como pincel ativo inicial
-          if (uniqueWordsList.length > 0) {
-            setActiveBrush(uniqueWordsList[0]);
-          }
-
-          setScanProgress(100);
-          setScanStatus("Documento lido com sucesso!");
-
-          setTimeout(() => {
-            if (isSubscribed) {
-              setStep(3);
-            }
-          }, 400);
-
-        } catch (err) {
-          console.error("Falha no OCR, avançando para preenchimento manual:", err);
-          fallbackToSimulation();
-        }
-      } else {
-        fallbackToSimulation();
-      }
-    };
-
-    const fallbackToSimulation = () => {
-      let progress = 30;
-      const interval = setInterval(() => {
-        progress += 10;
-        if (progress >= 100) {
-          clearInterval(interval);
-          if (isSubscribed) {
-            setScanProgress(100);
-            setScanStatus("A carregar assistente...");
-            setTimeout(() => {
-              if (isSubscribed) {
-                setStep(3);
-              }
-            }, 400);
-          }
-        } else {
-          if (isSubscribed) {
-            setScanProgress(progress);
-            setScanStatus("A inicializar assistente interativo...");
-          }
-        }
-      }, 100);
-    };
-
-    runOCR();
-
-    return () => {
-      isSubscribed = false;
-    };
-  }, [step]);
-
-  // Função para "Pintar" o valor na grelha ao clicar na célula
-  const handleCellClick = (dayIndex, slotIdx) => {
-    if (!generatedSchedule) return;
-
-    setGeneratedSchedule((prev) => {
-      const updated = { ...prev };
-      const currentCell = updated[dayIndex][slotIdx];
-      
-      // Se for a borracha, limpa a célula. Caso contrário, atribui a disciplina selecionada
-      if (activeBrush === "eraser") {
-        currentCell.subject = "";
-      } else {
-        currentCell.subject = activeBrush;
-      }
-      
-      return updated;
-    });
+  // ── Upload de ficheiro ─────────────────────────────────────────────────────
+  const handleFileSelect = (selectedFile) => {
+    if (!selectedFile) return;
+    setFile(selectedFile);
+    setImageUrl(URL.createObjectURL(selectedFile));
+    setError("");
+    analyzeImage(selectedFile);
   };
 
-  // Alterar a hora de um bloco específico
-  const handleRowTimeChange = (slotIdx, newTimeValue) => {
-    setGeneratedSchedule((prev) => {
-      if (!prev) return null;
-      const updated = { ...prev };
-      Object.keys(updated).forEach((dayIndex) => {
-        if (updated[dayIndex][slotIdx]) {
-          updated[dayIndex][slotIdx].time = newTimeValue;
-        }
-      });
-      return updated;
-    });
-  };
-
-  // Adicionar uma nova linha (bloco de tempo)
-  const handleAddRow = () => {
-    setGeneratedSchedule((prev) => {
-      if (!prev) return null;
-      const updated = { ...prev };
-      const currentLength = updated[1].length;
-      
-      // Calcular um tempo sugerido baseado na última linha
-      let suggestedTime = "17:00 - 18:00";
-      if (currentLength > 0) {
-        const lastTime = updated[1][currentLength - 1].time;
-        const parts = lastTime.split(" - ");
-        if (parts.length === 2) {
-          const [sh, sm] = parts[1].split(":").map(Number);
-          const endHourFormatted = `${String(sh).padStart(2, '0')}:${String(sm).padStart(2, '0')}`;
-          const nextHourFormatted = `${String(sh + 1).padStart(2, '0')}:${String(sm).padStart(2, '0')}`;
-          suggestedTime = `${endHourFormatted} - ${nextHourFormatted}`;
-        }
-      }
-
-      for (let day = 1; day <= 5; day++) {
-        updated[day].push({
-          id: `cell-${day}-${currentLength}-${Math.random().toString(36).substr(2, 5)}`,
-          subject: "",
-          time: suggestedTime,
-          room: "",
-          teacher: "",
-          email: ""
-        });
-      }
-      return updated;
-    });
-  };
-
-  // Remover uma linha (tempo de aula)
-  const handleRemoveRow = (slotIdx) => {
-    setGeneratedSchedule((prev) => {
-      if (!prev) return null;
-      const updated = { ...prev };
-      for (let day = 1; day <= 5; day++) {
-        updated[day] = updated[day].filter((_, idx) => idx !== slotIdx);
-      }
-      return updated;
-    });
-  };
-
-  // Drag and drop handlers
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
+    if (e.type === "dragenter" || e.type === "dragover") setDragActive(true);
+    else if (e.type === "dragleave") setDragActive(false);
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const selectedFile = e.dataTransfer.files[0];
-      setFile(selectedFile);
-      setImageUrl(URL.createObjectURL(selectedFile));
-      setStep(2);
-    }
+    if (e.dataTransfer.files?.[0]) handleFileSelect(e.dataTransfer.files[0]);
   };
 
   const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      const selectedFile = e.target.files[0];
-      setFile(selectedFile);
-      setImageUrl(URL.createObjectURL(selectedFile));
+    if (e.target.files?.[0]) handleFileSelect(e.target.files[0]);
+  };
+
+  // ── Análise com Gemini Vision ──────────────────────────────────────────────
+  const analyzeImage = async (imageFile) => {
+    setStep(3);
+    setAnalyzing(true);
+    setAnalyzeProgress(5);
+    setAnalyzeStatus("A preparar imagem para análise...");
+    setError("");
+
+    try {
+      // Converter imagem para base64
+      const base64Data = await fileToBase64(imageFile);
+      setAnalyzeProgress(20);
+      setAnalyzeStatus("A enviar imagem para IA Gemini...");
+
+      const mimeType = imageFile.type || "image/jpeg";
+      const currentKey = localStorage.getItem("schoolsync_gemini_key") || apiKey;
+
+      if (!currentKey) {
+        setError("Chave API não encontrada. Por favor, configure a sua chave Gemini.");
+        setStep(1);
+        setAnalyzing(false);
+        return;
+      }
+
+      setAnalyzeProgress(40);
+      setAnalyzeStatus("Gemini a analisar a estrutura da tabela de horário...");
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${currentKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: buildPrompt() },
+                  {
+                    inlineData: {
+                      mimeType: mimeType,
+                      data: base64Data,
+                    },
+                  },
+                ],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.1,
+              topK: 1,
+              topP: 1,
+              maxOutputTokens: 4096,
+            },
+          }),
+        }
+      );
+
+      setAnalyzeProgress(75);
+      setAnalyzeStatus("A processar resposta da IA...");
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        const errMsg = errData?.error?.message || `Erro ${response.status}`;
+        
+        if (response.status === 400 && errMsg.includes("API_KEY")) {
+          throw new Error("Chave API inválida ou expirada. Verifique a sua chave em aistudio.google.com.");
+        }
+        if (response.status === 429) {
+          throw new Error("Limite de utilização gratuita atingido. Aguarde um momento e tente de novo.");
+        }
+        throw new Error(`Erro da API Gemini: ${errMsg}`);
+      }
+
+      const data = await response.json();
+
+      setAnalyzeProgress(90);
+      setAnalyzeStatus("A mapear disciplinas e horários extraídos...");
+
+      // Extrair o JSON da resposta do Gemini
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      console.log("SchoolSync Gemini — Resposta bruta:", rawText);
+
+      // Limpar o JSON da resposta (remover markdown se presente)
+      let cleanJson = rawText.trim();
+      const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleanJson = jsonMatch[0];
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(cleanJson);
+      } catch {
+        throw new Error("A IA não devolveu um JSON válido. Tente com uma imagem mais nítida.");
+      }
+
+      // Normalizar e validar o horário extraído
+      const normalized = {};
+      const days = ["1", "2", "3", "4", "5"];
+      days.forEach((day) => {
+        const dayData = parsed[day] || parsed[parseInt(day)] || [];
+        normalized[day] = Array.isArray(dayData)
+          ? dayData
+              .filter((slot) => slot.subject && slot.subject.trim() !== "")
+              .map((slot, idx) => ({
+                id: `gemini-${day}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
+                subject: slot.subject
+                  .replace(/\(.*?\)/g, "")
+                  .replace(/\[.*?\]/g, "")
+                  .trim(),
+                time: slot.time || "",
+                room: "",
+                teacher: "",
+                email: "",
+              }))
+          : [];
+      });
+
+      const totalClasses = Object.values(normalized).reduce(
+        (sum, arr) => sum + arr.length,
+        0
+      );
+
+      if (totalClasses === 0) {
+        throw new Error("Nenhuma aula foi detetada na imagem. Certifique-se de que a imagem está nítida e contém uma tabela de horário.");
+      }
+
+      setAnalyzeProgress(100);
+      setAnalyzeStatus(`✓ ${totalClasses} aulas extraídas com sucesso!`);
+
+      setTimeout(() => {
+        setExtractedSchedule(normalized);
+        setEditSchedule(JSON.parse(JSON.stringify(normalized))); // deep copy para edição
+        setAnalyzing(false);
+        setStep(4);
+      }, 600);
+
+    } catch (err) {
+      console.error("SchoolSync Gemini Error:", err);
+      setError(err.message || "Erro desconhecido ao analisar a imagem.");
+      setAnalyzing(false);
       setStep(2);
     }
   };
 
-  // Confirmar a injeção na aplicação
-  const handleConfirmImport = () => {
-    if (!generatedSchedule) return;
+  // ── Edição pós-extração ────────────────────────────────────────────────────
+  const handleEditSlot = (day, idx, field, value) => {
+    setEditSchedule((prev) => {
+      const updated = { ...prev };
+      updated[day] = [...(updated[day] || [])];
+      updated[day][idx] = { ...updated[day][idx], [field]: value };
+      return updated;
+    });
+  };
+
+  const handleDeleteSlot = (day, idx) => {
+    setEditSchedule((prev) => {
+      const updated = { ...prev };
+      updated[day] = updated[day].filter((_, i) => i !== idx);
+      return updated;
+    });
+  };
+
+  const handleAddSlot = (day) => {
+    setEditSchedule((prev) => {
+      const updated = { ...prev };
+      updated[day] = [
+        ...(updated[day] || []),
+        {
+          id: `manual-${day}-${Date.now()}`,
+          subject: "",
+          time: "",
+          room: "",
+          teacher: "",
+          email: "",
+        },
+      ];
+      return updated;
+    });
+  };
+
+  // ── Confirmar e injetar na grelha ──────────────────────────────────────────
+  const handleConfirm = () => {
+    if (!editSchedule) return;
 
     const filtered = {};
-    let hasValidClasses = false;
+    let hasAny = false;
 
-    Object.entries(generatedSchedule).forEach(([dayIndex, dayClasses]) => {
-      // Filtra apenas células que têm disciplinas atribuídas
-      const validClasses = dayClasses
-        .filter(c => c.subject.trim() !== "")
-        .map(c => {
-          // Limpeza de parênteses por segurança
-          const cleanSubject = c.subject
-            .replace(/\(.*?\)/g, "")
-            .replace(/\[.*?\]/g, "")
-            .trim();
-          return {
-            ...c,
-            subject: cleanSubject
-          };
-        });
-
-      filtered[dayIndex] = validClasses;
-      if (validClasses.length > 0) hasValidClasses = true;
+    Object.entries(editSchedule).forEach(([day, slots]) => {
+      filtered[day] = slots.filter((s) => s.subject.trim() !== "");
+      if (filtered[day].length > 0) hasAny = true;
     });
 
-    if (!hasValidClasses) {
-      alert("Por favor, pinte pelo menos uma disciplina na grelha antes de confirmar.");
+    if (!hasAny) {
+      alert("Nenhuma disciplina encontrada. Adicione pelo menos uma aula antes de confirmar.");
       return;
     }
 
@@ -369,505 +299,468 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
     onClose();
   };
 
-  // Disciplinas padrão em Portugal
-  const DEFAULT_SUBJECTS = [
-    "Matemática", "Português", "Inglês", "Ciências Naturais", "Física e Química", 
-    "História", "Geografia", "Educação Física", "TIC", "Francês", 
-    "Educação Visual", "Cidadania", "Filosofia", "Direção de Turma"
-  ];
+  const DAY_NAMES = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira"];
+  const DAY_SHORT = ["Seg", "Ter", "Qua", "Qui", "Sex"];
 
+  const totalExtracted = editSchedule
+    ? Object.values(editSchedule).reduce((sum, arr) => sum + arr.filter(s => s.subject?.trim()).length, 0)
+    : 0;
+
+  // ══════════════════════════════════════════════════════════════════════════
   return (
     <div className="modal-overlay" style={{ zIndex: 999999 }}>
-      <div className="glass-panel modal-content" style={{ maxWidth: step === 3 ? "950px" : "600px", padding: "1.5rem", transition: "max-width 0.3s ease" }}>
+      <div
+        className="glass-panel modal-content"
+        style={{
+          maxWidth: step === 4 ? "780px" : "540px",
+          padding: "1.5rem",
+          transition: "max-width 0.3s ease",
+        }}
+      >
         <button className="modal-close" onClick={onClose}>×</button>
 
+        {/* ═══ PASSO 1: CONFIGURAÇÃO DA CHAVE API ═══════════════════════════ */}
         {step === 1 && (
-          /* ================= PASSO 1: UPLOAD ================= */
-          <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
+          <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
             <div className="modal-header" style={{ textAlign: "center" }}>
-              <h3 className="gradient-text" style={{ fontSize: "1.4rem" }}>📤 Importar Horário de {activeChild.name}</h3>
-              <p style={{ fontSize: "0.82rem", color: "var(--color-text-secondary)", marginTop: "0.25rem" }}>
-                Carregue um print ou foto do horário. O nosso assistente inteligente ajudá-lo-á a recriar a grelha em segundos com 100% de exatidão e zero digitação!
+              <div style={{ fontSize: "2.5rem", marginBottom: "0.5rem" }}>🔑</div>
+              <h3 className="gradient-text" style={{ fontSize: "1.3rem", margin: 0 }}>
+                Configurar IA de Importação
+              </h3>
+              <p style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)", marginTop: "0.3rem", lineHeight: "1.5" }}>
+                Para ler prints automaticamente, a aplicação utiliza a IA Gemini da Google (gratuito).
+                A sua chave é guardada apenas no seu telemóvel e nunca enviada para terceiros.
               </p>
             </div>
 
-            <form 
-              onDragEnter={handleDrag} 
-              onDragOver={handleDrag} 
-              onDragLeave={handleDrag} 
+            {/* Como obter a chave */}
+            <div style={{
+              background: "rgba(6, 182, 212, 0.05)",
+              border: "1px solid rgba(6, 182, 212, 0.15)",
+              borderRadius: "var(--radius-md)",
+              padding: "0.85rem 1rem",
+              fontSize: "0.78rem",
+              lineHeight: "1.6",
+              color: "var(--color-text-secondary)"
+            }}>
+              <strong style={{ color: "var(--color-primary)", display: "block", marginBottom: "0.3rem" }}>
+                Como obter a chave gratuita (30 segundos):
+              </strong>
+              <ol style={{ margin: 0, paddingLeft: "1.2rem", display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                <li>Aceda a <strong style={{ color: "var(--color-text-primary)" }}>aistudio.google.com/app/apikey</strong></li>
+                <li>Clique em <strong style={{ color: "var(--color-text-primary)" }}>"Criar chave de API"</strong></li>
+                <li>Copie a chave gerada (começa por "AI...")</li>
+                <li>Cole-a abaixo e clique em Guardar</li>
+              </ol>
+            </div>
+
+            {error && (
+              <div style={{ background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "var(--radius-md)", padding: "0.65rem 0.9rem", fontSize: "0.78rem", color: "#f87171" }}>
+                {error}
+              </div>
+            )}
+
+            <div className="form-group">
+              <label className="form-label">Chave API Gemini (Google AI Studio)</label>
+              <div style={{ position: "relative" }}>
+                <input
+                  type={showApiKey ? "text" : "password"}
+                  className="form-input"
+                  placeholder="AIza..."
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSaveApiKey()}
+                  style={{ paddingRight: "3rem" }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowApiKey(!showApiKey)}
+                  style={{ position: "absolute", right: "0.6rem", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "var(--color-text-muted)", cursor: "pointer", fontSize: "1rem", padding: "0.2rem" }}
+                >
+                  {showApiKey ? "🙈" : "👁️"}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleSaveApiKey}
+              style={{ width: "100%", padding: "0.75rem", fontWeight: "700", fontSize: "0.9rem" }}
+            >
+              Guardar e Continuar →
+            </button>
+
+            <p style={{ fontSize: "0.7rem", color: "var(--color-text-muted)", textAlign: "center", margin: 0 }}>
+              🔒 A chave fica guardada apenas neste telemóvel. Não é partilhada com ninguém.
+            </p>
+          </div>
+        )}
+
+        {/* ═══ PASSO 2: UPLOAD DO PRINT ════════════════════════════════════ */}
+        {step === 2 && (
+          <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
+            <div className="modal-header" style={{ textAlign: "center" }}>
+              <h3 className="gradient-text" style={{ fontSize: "1.3rem" }}>
+                📤 Importar Horário de {activeChild.name}
+              </h3>
+              <p style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)", marginTop: "0.2rem" }}>
+                Carregue um print ou foto do horário escolar. A IA Gemini irá extrair automaticamente todas as disciplinas e horários com exatidão.
+              </p>
+            </div>
+
+            {error && (
+              <div style={{ background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "var(--radius-md)", padding: "0.65rem 0.9rem", fontSize: "0.78rem", color: "#f87171", lineHeight: "1.5" }}>
+                ⚠️ {error}
+              </div>
+            )}
+
+            {/* Drop Zone */}
+            <form
+              onDragEnter={handleDrag}
+              onDragOver={handleDrag}
+              onDragLeave={handleDrag}
               onDrop={handleDrop}
-              onClick={() => document.getElementById("file-upload").click()}
+              onClick={() => document.getElementById("file-upload-gemini").click()}
               style={{
-                border: "2px dashed rgba(255, 255, 255, 0.15)",
-                borderColor: dragActive ? "var(--color-primary)" : "rgba(255, 255, 255, 0.12)",
+                border: `2px dashed ${dragActive ? "var(--color-primary)" : "rgba(255, 255, 255, 0.12)"}`,
                 borderRadius: "var(--radius-lg)",
                 padding: "3rem 1.5rem",
                 textAlign: "center",
-                background: dragActive ? "rgba(var(--color-primary-rgb), 0.05)" : "rgba(255, 255, 255, 0.005)",
+                background: dragActive ? "rgba(var(--color-primary-rgb), 0.04)" : "rgba(255, 255, 255, 0.005)",
                 cursor: "pointer",
                 transition: "var(--transition-smooth)",
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: "1rem"
+                gap: "1rem",
               }}
             >
-              <input 
-                id="file-upload" 
-                type="file" 
-                multiple={false} 
-                accept="image/*,.pdf" 
-                onChange={handleFileChange} 
-                style={{ display: "none" }} 
+              <input
+                id="file-upload-gemini"
+                type="file"
+                multiple={false}
+                accept="image/*,.pdf"
+                onChange={handleFileChange}
+                style={{ display: "none" }}
               />
-              
-              <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.5rem" }}>
-                📁
-              </div>
-              
+              <div style={{ fontSize: "2.5rem" }}>🤖</div>
               <div>
                 <p style={{ fontSize: "0.9rem", fontWeight: "600", color: "var(--color-text-primary)" }}>
-                  {dragActive ? "Solte o print aqui..." : "Arraste o print do telemóvel ou clique para carregar"}
+                  {dragActive ? "Solte o print aqui..." : "Arraste o print ou clique para selecionar"}
                 </p>
                 <p style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: "0.25rem" }}>
-                  Suporta imagens PNG, JPG, JPEG ou documentos PDF
+                  Suporta PNG, JPG, JPEG — A IA Gemini lê a imagem e extrai tudo automaticamente
                 </p>
               </div>
             </form>
 
-            <div style={{ padding: "0.8rem 1rem", background: "rgba(255, 255, 255, 0.02)", borderRadius: "var(--radius-md)", fontSize: "0.75rem", color: "var(--color-text-secondary)", lineHeight: "1.4", display: "flex", gap: "0.5rem", alignItems: "center" }}>
-              <span>💡</span>
-              <span><strong>Dica:</strong> Pode carregar um print da caderneta de aluno ou da plataforma escolar (ex: Inovar Consulta).</span>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ padding: "0.6rem 0.85rem", background: "rgba(16, 185, 129, 0.05)", border: "1px solid rgba(16, 185, 129, 0.12)", borderRadius: "var(--radius-md)", fontSize: "0.73rem", color: "var(--color-text-secondary)", lineHeight: "1.4", display: "flex", gap: "0.4rem", alignItems: "center", flex: 1 }}>
+                <span>✅</span>
+                <span><strong style={{ color: "#10b981" }}>IA Gemini configurada.</strong> Cada análise usa o crédito gratuito da sua conta Google.</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleChangeApiKey}
+                style={{ background: "transparent", border: "none", color: "var(--color-text-muted)", fontSize: "0.7rem", cursor: "pointer", marginLeft: "0.75rem", textDecoration: "underline", whiteSpace: "nowrap" }}
+              >
+                Alterar chave
+              </button>
             </div>
           </div>
         )}
 
-        {step === 2 && (
-          /* ================= PASSO 2: DIGITALIZAÇÃO IA (OCR) ================= */
+        {/* ═══ PASSO 3: ANÁLISE EM CURSO ════════════════════════════════════ */}
+        {step === 3 && (
           <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "1.5rem", padding: "2rem 0", textAlign: "center" }}>
-            <div style={{ position: "relative", width: "120px", height: "120px", borderRadius: "16px", background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.08)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 10px 30px rgba(0,0,0,0.2)" }}>
-              <span style={{ fontSize: "3rem" }}>📄</span>
-              <div style={{ position: "absolute", left: 0, width: "100%", height: "3px", background: "#10b981", boxShadow: "0 0 10px #10b981, 0 0 20px #10b981", animation: "scanLaser 2s linear infinite" }}></div>
+            {/* Ícone animado */}
+            <div style={{
+              position: "relative",
+              width: "110px",
+              height: "110px",
+              borderRadius: "50%",
+              background: "rgba(6, 182, 212, 0.06)",
+              border: "2px solid rgba(6, 182, 212, 0.2)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "0 0 30px rgba(6, 182, 212, 0.15)",
+              animation: "pulsateGlow 2s ease-in-out infinite"
+            }}>
+              <span style={{ fontSize: "3rem" }}>🤖</span>
             </div>
 
             <style>{`
-              @keyframes scanLaser {
-                0% { top: 0%; }
-                50% { top: 100%; }
-                100% { top: 0%; }
+              @keyframes pulsateGlow {
+                0%, 100% { box-shadow: 0 0 20px rgba(6, 182, 212, 0.15); }
+                50% { box-shadow: 0 0 40px rgba(6, 182, 212, 0.35), 0 0 60px rgba(6, 182, 212, 0.1); }
               }
             `}</style>
 
             <div style={{ width: "100%" }}>
-              <h4 style={{ fontSize: "1.1rem", fontWeight: "700", marginBottom: "0.25rem" }}>A Ler Print com Inteligência Artificial (OCR)</h4>
-              <p style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)", wordBreak: "break-all" }}>Ficheiro: {file?.name || "imagem_horario.png"}</p>
-            </div>
-
-            <div style={{ width: "100%", background: "rgba(255, 255, 255, 0.04)", height: "8px", borderRadius: "4px", overflow: "hidden", border: "1px solid rgba(255, 255, 255, 0.05)" }}>
-              <div style={{ height: "100%", width: `${scanProgress}%`, background: "linear-gradient(90deg, var(--color-primary), var(--color-secondary))", borderRadius: "4px", transition: "width 0.15s ease-out" }}></div>
-            </div>
-
-            <div style={{ fontSize: "0.82rem", color: "var(--color-text-primary)", fontWeight: "500", minHeight: "1.2rem" }}>
-              {scanStatus} <strong style={{ color: "var(--color-secondary)" }}>{scanProgress}%</strong>
-            </div>
-          </div>
-        )}
-
-        {step === 3 && (
-          /* ================= PASSO 3: ASSISTENTE PINTAR GRELHA (100% EXATO) ================= */
-          <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
-            
-            {/* Cabeçalho do Assistente */}
-            <div className="modal-header" style={{ textAlign: "center", borderBottom: "1px solid rgba(255,255,255,0.05)", paddingBottom: "0.5rem" }}>
-              <h3 className="gradient-text" style={{ fontSize: "1.25rem", margin: 0 }}>🎨 Pintar Horário de {activeChild.name}</h3>
-              <p style={{ fontSize: "0.78rem", color: "var(--color-text-secondary)", marginTop: "0.15rem" }}>
-                1. Escolha uma disciplina na paleta. 2. Clique nos blocos da tabela para a preencher. 100% Exato e sem erros!
+              <h4 style={{ fontSize: "1.1rem", fontWeight: "700", marginBottom: "0.2rem" }}>Gemini IA a ler o horário...</h4>
+              <p style={{ fontSize: "0.78rem", color: "var(--color-text-secondary)" }}>
+                A inteligência artificial Gemini está a analisar a estrutura da tabela e a extrair cada disciplina e horário exatamente como aparecem no print.
               </p>
             </div>
 
-            {/* Ajustes Rápidos da Grelha */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", background: "rgba(255, 255, 255, 0.01)", padding: "0.5rem 0.75rem", borderRadius: "var(--radius-md)", border: "1px solid rgba(255, 255, 255, 0.04)", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <span style={{ fontSize: "0.75rem", fontWeight: "600", color: "var(--color-text-secondary)" }}>Escolaridade:</span>
-                <select 
-                  value={cycle} 
-                  onChange={(e) => handleGridReset(e.target.value, startHour)}
-                  className="form-select"
-                  style={{ width: "auto", padding: "0.2rem 1.6rem 0.2rem 0.4rem", fontSize: "0.72rem", borderRadius: "4px" }}
-                >
-                  <option value="basico">Básico (5º ao 9º Ano — Tempos de 50m)</option>
-                  <option value="secundario">Secundário (10º ao 12º Ano — Tempos de 90m)</option>
-                </select>
-              </div>
+            {/* Progress bar */}
+            <div style={{ width: "100%", background: "rgba(255,255,255,0.04)", height: "8px", borderRadius: "4px", overflow: "hidden", border: "1px solid rgba(255,255,255,0.05)" }}>
+              <div style={{
+                height: "100%",
+                width: `${analyzeProgress}%`,
+                background: "linear-gradient(90deg, #06b6d4, #10b981)",
+                borderRadius: "4px",
+                transition: "width 0.4s ease-out"
+              }}></div>
+            </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <span style={{ fontSize: "0.75rem", fontWeight: "600", color: "var(--color-text-secondary)" }}>Hora de Início:</span>
-                <select 
-                  value={startHour} 
-                  onChange={(e) => handleGridReset(cycle, e.target.value)}
-                  className="form-select"
-                  style={{ width: "auto", padding: "0.2rem 1.6rem 0.2rem 0.4rem", fontSize: "0.72rem", borderRadius: "4px" }}
-                >
-                  <option value="08:00">08:00</option>
-                  <option value="08:15">08:15</option>
-                  <option value="08:30">08:30</option>
-                  <option value="09:00">09:00</option>
-                </select>
+            <div style={{ fontSize: "0.82rem", color: "var(--color-text-primary)", fontWeight: "500" }}>
+              {analyzeStatus} <strong style={{ color: "#10b981" }}>{analyzeProgress}%</strong>
+            </div>
+
+            {/* Thumbnail da imagem */}
+            {imageUrl && (
+              <div style={{ width: "80px", height: "80px", borderRadius: "8px", overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)", opacity: 0.7 }}>
+                <img src={imageUrl} alt="Print" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ═══ PASSO 4: REVISÃO E CONFIRMAÇÃO ══════════════════════════════ */}
+        {step === 4 && editSchedule && (
+          <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "0.9rem" }}>
+
+            {/* Header de sucesso */}
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)", borderRadius: "var(--radius-md)", padding: "0.7rem 1rem" }}>
+              <span style={{ fontSize: "1.4rem" }}>✅</span>
+              <div>
+                <p style={{ margin: 0, fontWeight: "700", fontSize: "0.9rem", color: "#10b981" }}>
+                  {totalExtracted} aulas extraídas pela IA Gemini
+                </p>
+                <p style={{ margin: 0, fontSize: "0.73rem", color: "var(--color-text-muted)" }}>
+                  Verifique abaixo se tudo está correto. Pode editar ou remover aulas individualmente.
+                </p>
               </div>
             </div>
 
-            {/* LADO A LADO: Print Original (Esquerda) + Grelha de Toque (Direita) */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem" }}>
-              
-              {/* Esquerda: Print Consultor (Imagem) */}
-              <div style={{ flex: "1 1 200px", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-                <span style={{ fontSize: "0.72rem", fontWeight: "700", color: "var(--color-text-secondary)" }}>📄 Print Original (Clique p/ Zoom):</span>
-                <div style={{
-                  background: "rgba(0, 0, 0, 0.25)",
-                  borderRadius: "var(--radius-md)",
-                  border: "1px solid rgba(255, 255, 255, 0.05)",
-                  overflow: "hidden",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  padding: "0.4rem",
-                  height: "270px"
-                }}>
-                  {imageUrl ? (
-                    <img 
-                      src={imageUrl} 
-                      alt="Print do Horário" 
-                      style={{ 
-                        maxWidth: "100%", 
-                        maxHeight: "100%", 
-                        objectFit: "contain",
-                        borderRadius: "4px",
-                        cursor: "zoom-in",
-                        transition: "all 0.2s ease"
-                      }} 
+            {/* Layout: imagem + tabela */}
+            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+
+              {/* Imagem do print (esquerda) */}
+              {imageUrl && (
+                <div style={{ flex: "0 0 160px", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                  <span style={{ fontSize: "0.7rem", fontWeight: "700", color: "var(--color-text-muted)" }}>Print Original:</span>
+                  <div style={{
+                    background: "rgba(0,0,0,0.2)",
+                    borderRadius: "var(--radius-md)",
+                    border: "1px solid rgba(255,255,255,0.06)",
+                    overflow: "hidden",
+                    height: "320px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "4px"
+                  }}>
+                    <img
+                      src={imageUrl}
+                      alt="Print do Horário"
+                      style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: "4px", cursor: "zoom-in" }}
                       onClick={(e) => {
                         const img = e.target;
-                        if (img.style.transform === "scale(1.8)") {
+                        if (img.style.transform === "scale(2)") {
                           img.style.transform = "scale(1)";
                           img.style.position = "static";
                           img.style.zIndex = "auto";
-                          img.style.boxShadow = "none";
                         } else {
-                          img.style.transform = "scale(1.8)";
+                          img.style.transform = "scale(2)";
                           img.style.position = "relative";
-                          img.style.zIndex = "1000";
-                          img.style.boxShadow = "0 10px 30px rgba(0,0,0,0.5)";
+                          img.style.zIndex = "100";
                         }
                       }}
                     />
-                  ) : (
-                    <span style={{ fontSize: "0.7rem", color: "var(--color-text-muted)" }}>Sem imagem</span>
-                  )}
-                </div>
-              </div>
-
-              {/* Direita: Grelha Interativa de Toque */}
-              <div style={{ flex: "2 1 450px", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: "0.72rem", fontWeight: "700", color: "var(--color-text-secondary)" }}>✏️ Clique nos blocos para pintar:</span>
-                  <button 
-                    type="button"
-                    onClick={handleAddRow}
-                    style={{ background: "transparent", border: "none", color: "var(--color-primary)", fontSize: "0.7rem", fontWeight: "600", cursor: "pointer" }}
-                  >
-                    ＋ Adicionar Tempo (Linha)
-                  </button>
-                </div>
-
-                <div style={{ maxHeight: "270px", overflow: "auto", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--radius-md)", background: "rgba(0,0,0,0.15)" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.72rem", textAlign: "center" }}>
-                    <thead>
-                      <tr style={{ background: "rgba(255, 255, 255, 0.03)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                        <th style={{ padding: "6px 8px", width: "95px", fontWeight: "600", color: "var(--color-text-muted)" }}>Hora / Bloco</th>
-                        <th style={{ padding: "6px 4px", fontWeight: "700", color: "var(--color-text-primary)" }}>Seg</th>
-                        <th style={{ padding: "6px 4px", fontWeight: "700", color: "var(--color-text-primary)" }}>Ter</th>
-                        <th style={{ padding: "6px 4px", fontWeight: "700", color: "var(--color-text-primary)" }}>Qua</th>
-                        <th style={{ padding: "6px 4px", fontWeight: "700", color: "var(--color-text-primary)" }}>Qui</th>
-                        <th style={{ padding: "6px 4px", fontWeight: "700", color: "var(--color-text-primary)" }}>Sex</th>
-                        <th style={{ width: "30px" }}></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {generatedSchedule && generatedSchedule[1].map((_, slotIdx) => {
-                        const rowTime = generatedSchedule[1][slotIdx]?.time || "08:30 - 09:20";
-                        return (
-                          <tr key={slotIdx} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", transition: "background 0.1s" }} className="grid-row-hover">
-                            {/* Hora Editável da Linha */}
-                            <td style={{ padding: "4px" }}>
-                              <input 
-                                type="text"
-                                value={rowTime}
-                                onChange={(e) => handleRowTimeChange(slotIdx, e.target.value)}
-                                style={{
-                                  width: "90px",
-                                  fontSize: "0.68rem",
-                                  background: "rgba(0,0,0,0.2)",
-                                  border: "none",
-                                  color: "var(--color-text-secondary)",
-                                  borderRadius: "4px",
-                                  padding: "2px",
-                                  textAlign: "center",
-                                  outline: "none"
-                                }}
-                              />
-                            </td>
-
-                            {/* Células de Dias de Aulas Pintáveis */}
-                            {[1, 2, 3, 4, 5].map((dayIndex) => {
-                              const cell = generatedSchedule[dayIndex][slotIdx] || { subject: "" };
-                              const isEmpty = !cell.subject.trim();
-                              return (
-                                <td key={dayIndex} style={{ padding: "2px" }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCellClick(dayIndex, slotIdx)}
-                                    style={{
-                                      width: "100%",
-                                      minHeight: "26px",
-                                      border: isEmpty ? "1px dashed rgba(255, 255, 255, 0.08)" : "1px solid rgba(var(--color-primary-rgb), 0.15)",
-                                      background: isEmpty 
-                                        ? "transparent" 
-                                        : "rgba(var(--color-primary-rgb), 0.08)",
-                                      color: isEmpty ? "rgba(255,255,255,0.25)" : "var(--color-text-primary)",
-                                      fontWeight: isEmpty ? "normal" : "700",
-                                      borderRadius: "4px",
-                                      fontSize: "0.68rem",
-                                      cursor: "pointer",
-                                      padding: "2px 4px",
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "center",
-                                      transition: "all 0.1s ease",
-                                      wordBreak: "break-word"
-                                    }}
-                                    onMouseOver={(e) => {
-                                      e.target.style.borderColor = activeBrush === "eraser" ? "#ef4444" : "var(--color-primary)";
-                                      e.target.style.background = activeBrush === "eraser" ? "rgba(239, 68, 68, 0.08)" : "rgba(var(--color-primary-rgb), 0.12)";
-                                    }}
-                                    onMouseOut={(e) => {
-                                      e.target.style.borderColor = isEmpty ? "rgba(255,255,255,0.08)" : "rgba(var(--color-primary-rgb), 0.15)";
-                                      e.target.style.background = isEmpty ? "transparent" : "rgba(var(--color-primary-rgb), 0.08)";
-                                    }}
-                                    title="Clique para pintar esta disciplina"
-                                  >
-                                    {isEmpty ? "—" : cell.subject}
-                                  </button>
-                                </td>
-                              );
-                            })}
-
-                            {/* Eliminar Linha */}
-                            <td style={{ padding: "2px" }}>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveRow(slotIdx)}
-                                style={{
-                                  background: "transparent",
-                                  border: "none",
-                                  color: "#ef4444",
-                                  cursor: "pointer",
-                                  fontSize: "0.75rem",
-                                  opacity: 0.45
-                                }}
-                                onMouseOver={(e) => e.target.style.opacity = 1}
-                                onMouseOut={(e) => e.target.style.opacity = 0.45}
-                                title="Remover este tempo"
-                              >
-                                ✕
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-            </div>
-
-            {/* SEÇÃO DA PALETA: Onde selecionam a cor/disciplina ativa para pintura */}
-            <div style={{ 
-              background: "rgba(255, 255, 255, 0.015)", 
-              padding: "0.6rem 0.8rem", 
-              borderRadius: "var(--radius-md)", 
-              border: "1px solid rgba(255, 255, 255, 0.04)",
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.5rem"
-            }}>
-              
-              {/* Disciplina Selecionada no Pincel */}
-              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", borderBottom: "1px solid rgba(255,255,255,0.03)", paddingBottom: "0.4rem" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                  <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>Pincel Selecionado:</span>
-                  <span 
-                    style={{ 
-                      fontSize: "0.75rem", 
-                      fontWeight: "700", 
-                      background: activeBrush === "eraser" ? "rgba(239, 68, 68, 0.15)" : "rgba(6, 182, 212, 0.15)",
-                      border: activeBrush === "eraser" ? "1px solid #ef4444" : "1px solid #06b6d4",
-                      color: activeBrush === "eraser" ? "#f87171" : "#22d3ee",
-                      padding: "2px 8px",
-                      borderRadius: "12px",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "4px",
-                      boxShadow: activeBrush === "eraser" ? "none" : "0 0 10px rgba(6, 182, 212, 0.2)"
-                    }}
-                  >
-                    {activeBrush === "eraser" ? "🧽 Borracha (Limpar Célula)" : `✏️ ${activeBrush}`}
-                  </span>
-                </div>
-
-                {/* Caixa de Texto para Criar Pincel Personalizado */}
-                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                  <input 
-                    type="text"
-                    value={customBrushText}
-                    onChange={(e) => setCustomBrushText(e.target.value)}
-                    placeholder="Outra disciplina..."
-                    style={{
-                      padding: "3px 6px",
-                      fontSize: "0.68rem",
-                      background: "rgba(255,255,255,0.03)",
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      borderRadius: "4px",
-                      color: "var(--color-text-primary)",
-                      width: "120px",
-                      outline: "none"
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && customBrushText.trim()) {
-                        setActiveBrush(customBrushText.trim());
-                        setCustomBrushText("");
-                      }
-                    }}
-                  />
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      if (customBrushText.trim()) {
-                        setActiveBrush(customBrushText.trim());
-                        setCustomBrushText("");
-                      }
-                    }}
-                    style={{
-                      background: "var(--color-primary)",
-                      border: "none",
-                      color: "white",
-                      padding: "3px 6px",
-                      borderRadius: "4px",
-                      fontSize: "0.68rem",
-                      cursor: "pointer",
-                      fontWeight: "600"
-                    }}
-                  >
-                    Usar
-                  </button>
-                </div>
-              </div>
-
-              {/* Badges do Print Lidos por OCR */}
-              {detectedWords.length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
-                  <span style={{ fontSize: "0.68rem", fontWeight: "700", color: "#10b981" }}>Texto detetado no print (Clique para usar como pincel):</span>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem", maxHeight: "60px", overflowY: "auto" }}>
-                    {detectedWords.map((word, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => setActiveBrush(word)}
-                        style={{
-                          background: activeBrush === word ? "rgba(16, 185, 129, 0.15)" : "rgba(255, 255, 255, 0.02)",
-                          border: activeBrush === word ? "1px solid #10b981" : "1px solid rgba(255, 255, 255, 0.08)",
-                          borderRadius: "20px",
-                          padding: "1px 7px",
-                          fontSize: "0.65rem",
-                          color: "var(--color-text-primary)",
-                          cursor: "pointer",
-                          transition: "all 0.1s"
-                        }}
-                      >
-                        {word}
-                      </button>
-                    ))}
                   </div>
                 </div>
               )}
 
-              {/* Disciplinas Padrão Escolares */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
-                <span style={{ fontSize: "0.68rem", fontWeight: "700", color: "var(--color-text-muted)" }}>Disciplinas padrão & Utilitários:</span>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem" }}>
+              {/* Tabela por dia (direita) */}
+              <div style={{ flex: "1 1 300px", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                
+                {/* Tabs dos dias */}
+                <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+                  {[1, 2, 3, 4, 5].map((day) => {
+                    const count = (editSchedule[day] || []).filter(s => s.subject?.trim()).length;
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => setSelectedDay(day)}
+                        style={{
+                          padding: "4px 10px",
+                          borderRadius: "20px",
+                          border: "1px solid",
+                          borderColor: selectedDay === day ? "var(--color-primary)" : "rgba(255,255,255,0.08)",
+                          background: selectedDay === day ? "rgba(6, 182, 212, 0.12)" : "transparent",
+                          color: selectedDay === day ? "var(--color-primary)" : "var(--color-text-secondary)",
+                          fontSize: "0.72rem",
+                          fontWeight: selectedDay === day ? "700" : "500",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px"
+                        }}
+                      >
+                        {DAY_SHORT[day - 1]}
+                        {count > 0 && (
+                          <span style={{
+                            background: selectedDay === day ? "var(--color-primary)" : "rgba(255,255,255,0.1)",
+                            color: selectedDay === day ? "#0b0f19" : "var(--color-text-muted)",
+                            borderRadius: "10px",
+                            padding: "0 5px",
+                            fontSize: "0.62rem",
+                            fontWeight: "700"
+                          }}>{count}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Aulas do dia selecionado */}
+                <div style={{ fontSize: "0.72rem", fontWeight: "700", color: "var(--color-text-secondary)" }}>
+                  {DAY_NAMES[selectedDay - 1]}
+                </div>
+
+                <div style={{
+                  maxHeight: "285px",
+                  overflowY: "auto",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.3rem",
+                  padding: "0.1rem"
+                }}>
+                  {(editSchedule[selectedDay] || []).length === 0 ? (
+                    <div style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", textAlign: "center", padding: "1.5rem 0" }}>
+                      Sem aulas neste dia
+                    </div>
+                  ) : (
+                    editSchedule[selectedDay].map((slot, idx) => (
+                      <div
+                        key={slot.id || idx}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.4rem",
+                          background: "rgba(255,255,255,0.02)",
+                          border: "1px solid rgba(255,255,255,0.04)",
+                          borderRadius: "6px",
+                          padding: "5px 8px"
+                        }}
+                      >
+                        {/* Hora */}
+                        <input
+                          type="text"
+                          value={slot.time}
+                          onChange={(e) => handleEditSlot(String(selectedDay), idx, "time", e.target.value)}
+                          style={{
+                            width: "105px",
+                            fontSize: "0.68rem",
+                            background: "rgba(0,0,0,0.25)",
+                            border: "1px solid rgba(255,255,255,0.05)",
+                            color: "var(--color-text-secondary)",
+                            borderRadius: "4px",
+                            padding: "3px 4px",
+                            textAlign: "center",
+                            outline: "none"
+                          }}
+                          placeholder="08:30 - 09:20"
+                        />
+
+                        {/* Disciplina */}
+                        <input
+                          type="text"
+                          value={slot.subject}
+                          onChange={(e) => handleEditSlot(String(selectedDay), idx, "subject", e.target.value)}
+                          style={{
+                            flex: 1,
+                            fontSize: "0.78rem",
+                            background: "rgba(255,255,255,0.04)",
+                            border: "1px solid rgba(255,255,255,0.06)",
+                            color: "var(--color-text-primary)",
+                            borderRadius: "4px",
+                            padding: "3px 6px",
+                            fontWeight: "600",
+                            outline: "none"
+                          }}
+                          placeholder="Disciplina"
+                        />
+
+                        {/* Apagar */}
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSlot(String(selectedDay), idx)}
+                          style={{
+                            background: "rgba(239,68,68,0.08)",
+                            border: "none",
+                            color: "#f87171",
+                            borderRadius: "4px",
+                            padding: "3px 6px",
+                            cursor: "pointer",
+                            fontSize: "0.68rem"
+                          }}
+                          title="Remover"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    ))
+                  )}
+
+                  {/* Botão adicionar aula */}
                   <button
                     type="button"
-                    onClick={() => setActiveBrush("eraser")}
+                    onClick={() => handleAddSlot(String(selectedDay))}
                     style={{
-                      background: activeBrush === "eraser" ? "rgba(239, 68, 68, 0.15)" : "rgba(255, 255, 255, 0.02)",
-                      border: activeBrush === "eraser" ? "1px solid #ef4444" : "1px solid rgba(255, 255, 255, 0.08)",
-                      borderRadius: "20px",
-                      padding: "1px 7px",
-                      fontSize: "0.65rem",
-                      color: "#f87171",
+                      background: "transparent",
+                      border: "1px dashed rgba(255,255,255,0.1)",
+                      borderRadius: "6px",
+                      color: "var(--color-text-muted)",
+                      fontSize: "0.72rem",
+                      padding: "5px",
                       cursor: "pointer",
-                      fontWeight: "700",
-                      transition: "all 0.1s"
+                      width: "100%",
+                      marginTop: "0.2rem"
                     }}
                   >
-                    🧽 Limpar Célula (Borracha)
+                    ＋ Adicionar aula
                   </button>
-
-                  {DEFAULT_SUBJECTS.map((sub, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setActiveBrush(sub)}
-                      style={{
-                        background: activeBrush === sub ? "rgba(6, 182, 212, 0.12)" : "rgba(255, 255, 255, 0.02)",
-                        border: activeBrush === sub ? "1px solid #06b6d4" : "1px solid rgba(255, 255, 255, 0.08)",
-                        borderRadius: "20px",
-                        padding: "1px 7px",
-                        fontSize: "0.65rem",
-                        color: "var(--color-text-primary)",
-                        cursor: "pointer",
-                        transition: "all 0.1s"
-                      }}
-                    >
-                      {sub}
-                    </button>
-                  ))}
                 </div>
               </div>
-
             </div>
 
-            {/* Ações Inferiores */}
-            <div style={{ display: "flex", gap: "1rem", marginTop: "0.1rem", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: "0.6rem" }}>
-              <button 
-                type="button" 
-                className="btn-secondary" 
-                onClick={() => { setStep(1); setFile(null); setGeneratedSchedule(null); setDetectedWords([]); }}
-                style={{ flex: 1, padding: "0.5rem" }}
+            {/* Ações */}
+            <div style={{ display: "flex", gap: "0.75rem", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: "0.7rem" }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => { setStep(2); setFile(null); setImageUrl(null); setEditSchedule(null); setExtractedSchedule(null); setError(""); }}
+                style={{ flex: 1, padding: "0.6rem" }}
               >
-                Voltar a Carregar Print
+                Importar Outro Print
               </button>
-              <button 
-                type="button" 
-                className="btn-primary" 
-                onClick={handleConfirmImport}
-                style={{ flex: 2, padding: "0.5rem", fontWeight: "700" }}
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleConfirm}
+                style={{ flex: 2, padding: "0.6rem", fontWeight: "700" }}
               >
-                Confirmar e Aplicar na Agenda
+                ✓ Aplicar Horário na Agenda
               </button>
             </div>
-
           </div>
         )}
       </div>
