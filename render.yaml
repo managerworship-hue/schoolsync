@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: schoolsync-pwa
+    runtime: static
+    buildCommand: npm run build
+    publishDir: dist
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=0, must-revalidate
+      - path: /sw.js
+        name: Cache-Control
+        value: public, max-age=0, must-revalidate
+      - path: /manifest.json
+        name: Cache-Control
+        value: public, max-age=0, must-revalidate
+    routes:
+      - type: rewrite
+        from: /*
+        to: /index.html
