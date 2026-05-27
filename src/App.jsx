@@ -259,8 +259,9 @@ export default function App() {
     setActiveChildId(newChild.id);
   };
 
-  // Estados para criação de novo perfil (Gerido a nível de raiz para evitar bugs de Stacking Context)
+  // Estados para criação e edição de perfil (Gerido a nível de raiz para evitar bugs de Stacking Context)
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingChild, setEditingChild] = useState(null);
   const [newName, setNewName] = useState("");
   const [newYear, setNewYear] = useState("");
   const [newClassroom, setNewClassroom] = useState("");
@@ -268,31 +269,75 @@ export default function App() {
   const [newAvatar, setNewAvatar] = useState("👦");
   const [newTheme, setNewTheme] = useState("lucas");
 
-  const handleCreateChild = (e) => {
-    e.preventDefault();
-    if (!newName || !newYear || !newClassroom) return;
-    
-    const formattedGrade = `${newYear}° ${newClassroom.trim().toUpperCase()}`;
-    const newChild = {
-      id: newName.toLowerCase().trim().replace(/\s+/g, "-"),
-      name: newName,
-      grade: formattedGrade,
-      school: newSchool.trim() || "Escola a definir",
-      avatar: newAvatar,
-      theme: newTheme,
-      schedule: { 1: [], 2: [], 3: [], 4: [], 5: [] }
-    };
+  const handleStartEditChild = (child) => {
+    setEditingChild(child);
+    setNewName(child.name);
+    setNewSchool(child.school || "");
+    setNewAvatar(child.avatar || "👦");
+    setNewTheme(child.theme || "lucas");
 
-    handleAddChild(newChild);
-    
-    // Limpar estados
+    // Parse grade (e.g., "8° C")
+    const match = (child.grade || "").match(/^(\d+)°\s*(.*)$/);
+    if (match) {
+      setNewYear(match[1]);
+      setNewClassroom(match[2]);
+    } else {
+      setNewYear("");
+      setNewClassroom("");
+    }
+
+    setShowAddModal(true);
+  };
+
+  const handleCloseAddModal = () => {
     setNewName("");
     setNewYear("");
     setNewClassroom("");
     setNewSchool("");
     setNewAvatar("👦");
     setNewTheme("lucas");
+    setEditingChild(null);
     setShowAddModal(false);
+  };
+
+  const handleCreateChild = (e) => {
+    e.preventDefault();
+    if (!newName || !newYear || !newClassroom) return;
+    
+    const formattedGrade = `${newYear}° ${newClassroom.trim().toUpperCase()}`;
+
+    if (editingChild) {
+      // Editar perfil existente
+      setChildrenList((prevList) =>
+        prevList.map((c) =>
+          c.id === editingChild.id
+            ? {
+                ...c,
+                name: newName,
+                grade: formattedGrade,
+                school: newSchool.trim() || "Escola a definir",
+                avatar: newAvatar,
+                theme: newTheme,
+              }
+            : c
+        )
+      );
+    } else {
+      // Criar novo perfil
+      const newChild = {
+        id: newName.toLowerCase().trim().replace(/\s+/g, "-"),
+        name: newName,
+        grade: formattedGrade,
+        school: newSchool.trim() || "Escola a definir",
+        avatar: newAvatar,
+        theme: newTheme,
+        schedule: { 1: [], 2: [], 3: [], 4: [], 5: [] }
+      };
+      handleAddChild(newChild);
+    }
+    
+    // Limpar estados e fechar
+    handleCloseAddModal();
   };
 
   // Callback para excluir o perfil de um filho
@@ -424,6 +469,7 @@ export default function App() {
         currentUser={currentUser}
         onLogout={handleLogout}
         onDeleteChild={handleDeleteChild}
+        onEditChild={handleStartEditChild}
       />
 
       <div className="dashboard-grid">
@@ -457,14 +503,18 @@ export default function App() {
         />
       )}
 
-      {/* Modal de Adicionar Perfil de Filho (Sobreposição Absoluta - z-index 999999) */}
+      {/* Modal de Adicionar/Editar Perfil de Filho (Sobreposição Absoluta - z-index 999999) */}
       {showAddModal && (
         <div className="modal-overlay">
           <div className="glass-panel modal-content" style={{ maxWidth: "400px" }}>
-            <button className="modal-close" onClick={() => setShowAddModal(false)}>×</button>
+            <button className="modal-close" onClick={handleCloseAddModal}>×</button>
             <div className="modal-header">
-              <h3 className="gradient-text" style={{ fontSize: "1.3rem" }}>Adicionar Perfil</h3>
-              <p style={{ fontSize: "0.78rem", color: "var(--color-text-secondary)" }}>Crie um novo perfil para consultar horários</p>
+              <h3 className="gradient-text" style={{ fontSize: "1.3rem" }}>
+                {editingChild ? "Editar Perfil" : "Adicionar Perfil"}
+              </h3>
+              <p style={{ fontSize: "0.78rem", color: "var(--color-text-secondary)" }}>
+                {editingChild ? `Atualize o perfil de ${editingChild.name}` : "Crie um novo perfil para consultar horários"}
+              </p>
             </div>
             
             <form onSubmit={handleCreateChild} className="modal-body" style={{ gap: "1rem" }}>
@@ -551,7 +601,7 @@ export default function App() {
               </div>
 
               <button type="submit" className="btn-primary" style={{ marginTop: "0.5rem", width: "100%" }}>
-                Confirmar Perfil
+                {editingChild ? "Guardar Alterações" : "Confirmar Perfil"}
               </button>
             </form>
           </div>

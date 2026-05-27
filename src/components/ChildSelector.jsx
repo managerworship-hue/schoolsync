@@ -1,6 +1,14 @@
 import React from "react";
 
-export default function ChildSelector({ childrenList, activeChildId, onSelectChild, onOpenAddModal, currentUser, onLogout, onDeleteChild }) {
+export default function ChildSelector({ childrenList, activeChildId, onSelectChild, onOpenAddModal, currentUser, onLogout, onDeleteChild, onEditChild }) {
+  const handleChildClick = (child) => {
+    if (activeChildId === child.id) {
+      onEditChild(child);
+    } else {
+      onSelectChild(child.id);
+    }
+  };
+
   return (
     <div className="glass-panel child-selector-container">
       {/* Brand Logo & Title */}
@@ -20,8 +28,9 @@ export default function ChildSelector({ childrenList, activeChildId, onSelectChi
           <div key={child.id} className="child-avatar-wrapper" style={{ position: "relative" }}>
             <button
               className={`child-avatar-btn glow-effect ${activeChildId === child.id ? "active" : ""}`}
-              onClick={() => onSelectChild(child.id)}
+              onClick={() => handleChildClick(child)}
               style={{ width: "100%" }}
+              title={`Clique para selecionar ou editar o perfil de ${child.name}`}
             >
               <span className="avatar-circle">{child.avatar}</span>
               <div className="child-info">
@@ -30,6 +39,40 @@ export default function ChildSelector({ childrenList, activeChildId, onSelectChi
               </div>
             </button>
             
+            {/* Edit Profile button (only active profile) */}
+            {activeChildId === child.id && (
+              <button
+                type="button"
+                className="btn-edit-profile"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditChild(child);
+                }}
+                title={`Editar perfil de ${child.name}`}
+                style={{
+                  position: "absolute",
+                  top: "-4px",
+                  left: "-4px",
+                  background: "var(--color-primary)",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "50%",
+                  width: "18px",
+                  height: "18px",
+                  fontSize: "0.55rem",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  boxShadow: "0 2px 6px rgba(37, 99, 235, 0.4)",
+                  zIndex: 10,
+                  transition: "var(--transition-smooth)"
+                }}
+              >
+                ✏️
+              </button>
+            )}
+
             {/* Delete Profile button (only active profile) */}
             {activeChildId === child.id && (
               <button
