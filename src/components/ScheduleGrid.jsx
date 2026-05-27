@@ -70,15 +70,23 @@ export default function ScheduleGrid({ activeChild, onSelectClass }) {
     }
   };
 
-  // Slots de tempos padrão da escola
-  const allTimeSlots = [
-    "08:30 - 09:20",
-    "09:25 - 10:15",
-    "10:30 - 11:20",
-    "11:25 - 12:15",
-    "13:30 - 14:20",
-    "14:25 - 15:15"
-  ];
+  // Slots de tempos extraídos de forma dinâmica a partir do horário ativo
+  const allTimeSlots = React.useMemo(() => {
+    if (!activeChild || !activeChild.schedule) return [];
+    const slots = new Set();
+    Object.values(activeChild.schedule).forEach((dayClasses) => {
+      dayClasses.forEach((classItem) => {
+        slots.add(classItem.time);
+      });
+    });
+
+    // Ordenar os slots horários por hora de início
+    return Array.from(slots).sort((a, b) => {
+      const timeA = a.split(" - ")[0];
+      const timeB = b.split(" - ")[0];
+      return timeA.localeCompare(timeB);
+    });
+  }, [activeChild]);
 
   if (activeChild.id === "default") {
     return (
