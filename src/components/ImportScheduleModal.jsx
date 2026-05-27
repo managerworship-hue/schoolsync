@@ -20,7 +20,16 @@ const SUBJECTS_BY_CYCLE = {
     "Português", "Inglês", "Francês", "Espanhol", "Alemão", "História", "Geografia", "Matemática", "Ciências Naturais", "Físico-Química", "Educação Visual", "Educação Física", "TIC", "Teatro", "Dança"
   ],
   "Secundário (10º ao 12º)": [
-    "Filosofia", "Matemática A", "Matemática B", "MACS", "Biologia e Geologia", "Física e Química A", "Geometria Descritiva A", "Desenho A", "História A", "História B", "Geografia A", "Economia A", "Economia C", "Literatura Portuguesa", "Latim A", "Sociologia", "Psicologia B", "Ciência Política", "Direito", "Aplicações Informáticas B", "Biologia", "Geologia", "Física", "Química"
+    // Tronco Comum (Obrigatórias)
+    "Português", "Inglês", "Filosofia", "Educação Física",
+    // Ciências e Tecnologias
+    "Matemática A", "Física e Química A", "Biologia e Geologia", "Geometria Descritiva A", "Física", "Química", "Biologia", "Geologia", "Aplicações Informáticas B",
+    // Ciências Socioeconómicas / Línguas e Humanidades
+    "Economia A", "Economia C", "História A", "História B", "Geografia A", "Sociologia", "MACS", "Matemática B", "Literatura Portuguesa", "Latim A", "Psicologia B", "Direito", "Ciência Política",
+    // Artes Visuais
+    "Desenho A", "História da Cultura e das Artes", "Oficina de Artes", "Oficina Multimédia B", "Materiais e Tecnologias",
+    // Outros Segmentos / Ensino Profissional
+    "Área de Integração", "Francês", "Espanhol", "Alemão"
   ]
 };
 
