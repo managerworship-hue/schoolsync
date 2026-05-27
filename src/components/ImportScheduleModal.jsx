@@ -1,22 +1,5 @@
 import React, { useState } from "react";
 
-// ─── Horários comuns em escolas portuguesas ────────────────────────────────
-const TIME_SLOTS = [
-  // Manhã
-  "08:15 - 09:05", "08:15 - 09:45", "08:25 - 09:15", "08:25 - 09:55",
-  "08:30 - 09:20", "08:30 - 10:00", "09:20 - 10:10", "10:05 - 10:55",
-  "10:15 - 11:05", "10:15 - 11:45", "10:20 - 11:10", "10:20 - 11:50",
-  "10:30 - 11:20", "10:30 - 12:00", "11:15 - 12:05", "11:20 - 12:10",
-  "11:20 - 12:50", "11:30 - 12:20", "11:35 - 12:25", "12:10 - 13:00",
-  "12:25 - 13:15",
-  
-  // Tarde
-  "13:30 - 14:20", "13:30 - 15:00", "13:45 - 14:35", "13:45 - 15:15",
-  "14:20 - 15:10", "14:30 - 15:20", "14:30 - 16:00", "15:10 - 16:00",
-  "15:25 - 16:15", "15:25 - 16:55", "15:30 - 16:20", "16:15 - 17:05",
-  "16:30 - 17:20", "17:05 - 17:55", "17:25 - 18:15"
-];
-
 const DEFAULT_GRID_SLOTS = [
   "08:30 - 09:20", "09:20 - 10:10", "10:30 - 11:20", "11:20 - 12:10",
   "13:30 - 14:20", "14:20 - 15:10", "15:10 - 16:00", "16:15 - 17:05"
@@ -41,6 +24,26 @@ const SUBJECTS_BY_CYCLE = {
   ]
 };
 
+const getCycleForYear = (grade) => {
+  if (!grade) return null;
+  const match = grade.match(/^(\d+)/);
+  if (!match) return null;
+  const year = parseInt(match[1], 10);
+  if (year >= 1 && year <= 4) return "1º Ciclo";
+  if (year >= 5 && year <= 6) return "2º Ciclo (5º/6º)";
+  if (year >= 7 && year <= 9) return "3º Ciclo (7º ao 9º)";
+  if (year >= 10 && year <= 12) return "Secundário (10º ao 12º)";
+  return null;
+};
+
+const getRowTimes = (timeStr) => {
+  const parts = (timeStr || "").split(" - ");
+  return {
+    start: parts[0] || "08:30",
+    end: parts[1] || "09:20"
+  };
+};
+
 const DAYS = ["Seg", "Ter", "Qua", "Qui", "Sex"];
 const DAY_FULL = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira"];
 
@@ -53,6 +56,17 @@ const emptyGrid = () =>
 export default function ImportScheduleModal({ activeChild, onClose, onImportSuccess }) {
   const [rows, setRows] = useState(emptyGrid);
 
+  const cycle = getCycleForYear(activeChild?.grade);
+
+  // Filtered subjects list based on child profile grade/year
+  const filteredSubjects = {};
+  if (cycle && SUBJECTS_BY_CYCLE[cycle]) {
+    filteredSubjects["Geral & Outros"] = SUBJECTS_BY_CYCLE["Geral & Outros"];
+    filteredSubjects[cycle] = SUBJECTS_BY_CYCLE[cycle];
+  } else {
+    Object.assign(filteredSubjects, SUBJECTS_BY_CYCLE);
+  }
+
   const updateCell = (rowIdx, day, val) => {
     setRows((prev) => prev.map((r, i) => i === rowIdx ? { ...r, cells: { ...r.cells, [day]: val } } : r));
   };
@@ -61,8 +75,12 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
     setRows((prev) => prev.map((r, i) => i === rowIdx ? { ...r, time: val } : r));
   };
 
+  const handleTimeChange = (rowIdx, newStart, newEnd) => {
+    updateTime(rowIdx, `${newStart || "00:00"} - ${newEnd || "00:00"}`);
+  };
+
   const addRow = () =>
-    setRows((prev) => [...prev, { time: TIME_SLOTS[0], cells: { 1: "", 2: "", 3: "", 4: "", 5: "" } }]);
+    setRows((prev) => [...prev, { time: "08:30 - 09:20", cells: { 1: "", 2: "", 3: "", 4: "", 5: "" } }]);
 
   const removeRow = (idx) =>
     setRows((prev) => prev.filter((_, i) => i !== idx));
@@ -95,18 +113,18 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
 
   return (
     <div className="modal-overlay" style={{ zIndex: 999999 }}>
-      <div className="glass-panel modal-content" style={{ maxWidth: "780px", padding: "1.2rem 1.3rem", width: "98vw" }}>
+      <div className="glass-panel modal-content" style={{ maxWidth: "820px", padding: "1.2rem 1.3rem", width: "98vw" }}>
         <button className="modal-close" onClick={onClose}>×</button>
 
         <div style={{ marginBottom: "0.9rem" }}>
           <h3 className="gradient-text" style={{ fontSize: "1.15rem", margin: 0 }}>📅 Horário de {activeChild.name}</h3>
           <p style={{ fontSize: "0.75rem", color: "var(--color-text-secondary)", marginTop: "0.2rem" }}>
-            Selecione a hora e as disciplinas usando as caixas de seleção. Não precisa digitar nada manualmente.
+            Defina o horário inserindo a hora desejada e selecionando as disciplinas da lista (filtrada para o ano {activeChild.grade || "escolar"}).
           </p>
         </div>
 
         <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "65vh" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "650px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "700px" }}>
             <thead>
               <tr>
                 <th style={thStyle("#0b0f19")}>⏱ Hora</th>
@@ -124,61 +142,89 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, rowIdx) => (
-                <tr key={rowIdx} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                  
-                  {/* Select Hora */}
-                  <td style={{ padding: "3px 4px", verticalAlign: "middle", width: "120px" }}>
-                    <select
-                      value={row.time}
-                      onChange={(e) => updateTime(rowIdx, e.target.value)}
-                      style={{
-                        width: "100%", fontSize: "0.68rem", background: "rgba(0,0,0,0.2)",
-                        border: "1px solid rgba(255,255,255,0.06)", color: "var(--color-text-primary)",
-                        borderRadius: "4px", padding: "4px 2px", outline: "none",
-                        fontFamily: "monospace", cursor: "pointer", appearance: "auto"
-                      }}
-                    >
-                      {TIME_SLOTS.map(t => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
-                  </td>
-
-                  {/* Select Disciplinas */}
-                  {[1, 2, 3, 4, 5].map((day) => {
-                    const isIntervalo = row.cells[day] === "Intervalo";
-                    return (
-                      <td key={day} style={{ padding: "3px", verticalAlign: "middle", width: "16%" }}>
-                        <select
-                          value={row.cells[day] || ""}
-                          onChange={(e) => updateCell(rowIdx, day, e.target.value)}
+              {rows.map((row, rowIdx) => {
+                const { start, end } = getRowTimes(row.time);
+                return (
+                  <tr key={rowIdx} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                    
+                    {/* Caixa de Hora */}
+                    <td style={{ padding: "3px 4px", verticalAlign: "middle", width: "150px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "3px", width: "100%" }}>
+                        <input
+                          type="time"
+                          value={start}
+                          onChange={(e) => handleTimeChange(rowIdx, e.target.value, end)}
                           style={{
-                            width: "100%", fontSize: "0.72rem", fontWeight: row.cells[day] ? "600" : "400",
-                            background: isIntervalo ? "rgba(16,185,129,0.15)" : (row.cells[day] ? "rgba(6,182,212,0.12)" : "rgba(255,255,255,0.03)"),
-                            border: `1px solid ${isIntervalo ? "rgba(16,185,129,0.4)" : (row.cells[day] ? "rgba(6,182,212,0.3)" : "rgba(255,255,255,0.05)")}`,
-                            color: isIntervalo ? "#10b981" : (row.cells[day] ? "var(--color-text-primary)" : "var(--color-text-muted)"),
-                            borderRadius: "5px", padding: "5px 2px", outline: "none", cursor: "pointer",
-                            appearance: "auto", textOverflow: "ellipsis"
+                            flex: 1,
+                            fontSize: "0.72rem",
+                            background: "rgba(0,0,0,0.25)",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            color: "var(--color-text-primary)",
+                            borderRadius: "4px",
+                            padding: "4px 2px",
+                            outline: "none",
+                            textAlign: "center",
+                            fontFamily: "monospace",
+                            cursor: "pointer"
                           }}
-                        >
-                          <option value="">— Livre —</option>
-                          {Object.entries(SUBJECTS_BY_CYCLE).map(([group, subjects]) => (
-                            <optgroup key={group} label={group}>
-                              {subjects.map(s => (
-                                <option key={s} value={s}>{s}</option>
-                              ))}
-                            </optgroup>
-                          ))}
-                        </select>
-                      </td>
-                    );
-                  })}
-                  <td style={{ padding: "3px 4px", verticalAlign: "middle", width: "20px" }}>
-                    <button type="button" onClick={() => removeRow(rowIdx)} style={{ background: "none", border: "none", color: "rgba(239,68,68,0.5)", cursor: "pointer", fontSize: "0.9rem", padding: "2px 4px" }}>×</button>
-                  </td>
-                </tr>
-              ))}
+                        />
+                        <span style={{ color: "var(--color-text-muted)", fontSize: "0.7rem" }}>-</span>
+                        <input
+                          type="time"
+                          value={end}
+                          onChange={(e) => handleTimeChange(rowIdx, start, e.target.value)}
+                          style={{
+                            flex: 1,
+                            fontSize: "0.72rem",
+                            background: "rgba(0,0,0,0.25)",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            color: "var(--color-text-primary)",
+                            borderRadius: "4px",
+                            padding: "4px 2px",
+                            outline: "none",
+                            textAlign: "center",
+                            fontFamily: "monospace",
+                            cursor: "pointer"
+                          }}
+                        />
+                      </div>
+                    </td>
+
+                    {/* Select Disciplinas */}
+                    {[1, 2, 3, 4, 5].map((day) => {
+                      const isIntervalo = row.cells[day] === "Intervalo";
+                      return (
+                        <td key={day} style={{ padding: "3px", verticalAlign: "middle", width: "16%" }}>
+                          <select
+                            value={row.cells[day] || ""}
+                            onChange={(e) => updateCell(rowIdx, day, e.target.value)}
+                            style={{
+                              width: "100%", fontSize: "0.72rem", fontWeight: row.cells[day] ? "600" : "400",
+                              background: isIntervalo ? "rgba(16,185,129,0.15)" : (row.cells[day] ? "rgba(6,182,212,0.12)" : "rgba(255,255,255,0.03)"),
+                              border: `1px solid ${isIntervalo ? "rgba(16,185,129,0.4)" : (row.cells[day] ? "rgba(6,182,212,0.3)" : "rgba(255,255,255,0.05)")}`,
+                              color: isIntervalo ? "#10b981" : (row.cells[day] ? "var(--color-text-primary)" : "var(--color-text-muted)"),
+                              borderRadius: "5px", padding: "5px 2px", outline: "none", cursor: "pointer",
+                              appearance: "auto", textOverflow: "ellipsis"
+                            }}
+                          >
+                            <option value="">— Livre —</option>
+                            {Object.entries(filteredSubjects).map(([group, subjects]) => (
+                              <optgroup key={group} label={group}>
+                                {subjects.map(s => (
+                                  <option key={s} value={s}>{s}</option>
+                                ))}
+                              </optgroup>
+                            ))}
+                          </select>
+                        </td>
+                      );
+                    })}
+                    <td style={{ padding: "3px 4px", verticalAlign: "middle", width: "20px" }}>
+                      <button type="button" onClick={() => removeRow(rowIdx)} style={{ background: "none", border: "none", color: "rgba(239,68,68,0.5)", cursor: "pointer", fontSize: "0.9rem", padding: "2px 4px" }}>×</button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
