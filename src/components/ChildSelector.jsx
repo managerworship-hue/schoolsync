@@ -10,7 +10,8 @@ export default function ChildSelector({
   onDeleteChild, 
   onEditChild,
   schoolYear = "2025/2026",
-  onEditSchoolYear
+  onEditSchoolYear,
+  onOpenBackupModal
 }) {
   const handleChildClick = (child) => {
     if (activeChildId === child.id) {
@@ -154,49 +155,14 @@ export default function ChildSelector({
             <span className="user-profile-name" title={currentUser.email}>{currentUser.name.split(" ")[0]}</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-            {/* Botão de Exportar Backup */}
+            {/* Botão de Cópia de Segurança & Migração */}
             <button 
-              onClick={() => {
-                const key = `schoolsync_children_user_${currentUser.id}`;
-                const data = localStorage.getItem(key);
-                if (data && data !== "[]") {
-                  navigator.clipboard.writeText(data);
-                  alert("Todos os perfis e horários foram copiados para a Área de Transferência como cópia de segurança! Pode colá-los onde desejar.");
-                } else {
-                  alert("Não existem perfis criados para exportar cópia de segurança nesta conta.");
-                }
-              }} 
+              onClick={onOpenBackupModal} 
               className="btn-logout" 
-              title="Copiar Todos os Dados para a Área de Transferência (Backup)"
+              title="Cópia de Segurança / Importar e Exportar Dados"
               style={{ padding: "4px 8px", fontSize: "0.85rem", background: "rgba(6, 182, 212, 0.08)", border: "1px solid rgba(6, 182, 212, 0.25)", color: "#06b6d4", borderRadius: "5px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
             >
-              📋
-            </button>
-
-            {/* Botão de Importar Backup */}
-            <button 
-              onClick={() => {
-                const raw = prompt("Cole o JSON de backup aqui para restaurar os dados nesta conta:");
-                if (raw && raw.trim()) {
-                  try {
-                    const parsed = JSON.parse(raw);
-                    if (Array.isArray(parsed)) {
-                      const key = `schoolsync_children_user_${currentUser.id}`;
-                      localStorage.setItem(key, raw);
-                      window.location.reload();
-                    } else {
-                      alert("Formato de dados inválido.");
-                    }
-                  } catch (e) {
-                    alert("Erro ao ler os dados colados. Certifique-se de que copiou o texto completo.");
-                  }
-                }
-              }} 
-              className="btn-logout" 
-              title="Importar / Colar Dados de Backup nesta Conta"
-              style={{ padding: "4px 8px", fontSize: "0.85rem", background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.25)", color: "#10b981", borderRadius: "5px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-            >
-              📥
+              💾
             </button>
 
             {/* Botão de Terminar Sessão */}

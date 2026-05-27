@@ -302,6 +302,9 @@ export default function App() {
 
   // Estados para criação e edição de perfil (Gerido a nível de raiz para evitar bugs de Stacking Context)
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showBackupModal, setShowBackupModal] = useState(false);
+  const [backupInputText, setBackupInputText] = useState("");
+  const [backupError, setBackupError] = useState("");
   const [editingChild, setEditingChild] = useState(null);
   const [newName, setNewName] = useState("");
   const [newYear, setNewYear] = useState("");
@@ -503,6 +506,7 @@ export default function App() {
         onEditChild={handleStartEditChild}
         schoolYear={schoolYear}
         onEditSchoolYear={handleEditSchoolYear}
+        onOpenBackupModal={() => setShowBackupModal(true)}
       />
 
       <div className="dashboard-grid">
@@ -637,6 +641,135 @@ export default function App() {
                 {editingChild ? "Guardar Alterações" : "Confirmar Perfil"}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Cópia de Segurança / Importar e Exportar Dados */}
+      {showBackupModal && (
+        <div className="modal-overlay" style={{ zIndex: 999999 }}>
+          <div className="glass-panel modal-content" style={{ maxWidth: "500px", width: "95vw" }}>
+            <button className="modal-close" onClick={() => {
+              setShowBackupModal(false);
+              setBackupInputText("");
+              setBackupError("");
+            }}>×</button>
+            <div className="modal-header">
+              <h3 className="gradient-text" style={{ fontSize: "1.3rem" }}>
+                💾 Cópia de Segurança & Migração
+              </h3>
+              <p style={{ fontSize: "0.78rem", color: "var(--color-text-secondary)" }}>
+                Exporte ou cole dados de perfis e horários sem limites de tamanho.
+              </p>
+            </div>
+            
+            <div className="modal-body" style={{ gap: "1.2rem", marginTop: "0.5rem" }}>
+              {/* Secção de Exportação */}
+              <div className="form-group">
+                <label className="form-label" style={{ fontWeight: "700" }}>📋 Exportar Dados Atuais</label>
+                <p style={{ fontSize: "0.72rem", color: "var(--color-text-muted)", marginBottom: "0.4rem" }}>
+                  Copie o código abaixo para guardar uma cópia de segurança dos seus dados.
+                </p>
+                <textarea
+                  readOnly
+                  value={JSON.stringify(childrenList)}
+                  onClick={(e) => e.target.select()}
+                  style={{
+                    width: "100%",
+                    height: "80px",
+                    fontSize: "0.72rem",
+                    fontFamily: "monospace",
+                    background: "rgba(0,0,0,0.3)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: "6px",
+                    color: "var(--color-text-secondary)",
+                    padding: "8px",
+                    resize: "none",
+                    outline: "none"
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn-primary"
+                  style={{ marginTop: "0.4rem", width: "100%", padding: "0.5rem", fontSize: "0.8rem" }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(JSON.stringify(childrenList));
+                    alert("Cópia de segurança copiada para a Área de Transferência!");
+                  }}
+                >
+                  Copiar Dados para Área de Transferência
+                </button>
+              </div>
+
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", my: "0.5rem" }} />
+
+              {/* Secção de Importação */}
+              <div className="form-group">
+                <label className="form-label" style={{ fontWeight: "700" }}>📥 Importar / Colar Backup</label>
+                <p style={{ fontSize: "0.72rem", color: "var(--color-text-muted)", marginBottom: "0.4rem" }}>
+                  Cole o código de backup completo no campo abaixo para restaurar ou copiar dados para esta conta.
+                </p>
+                <textarea
+                  placeholder="Cole aqui o texto completo de backup..."
+                  value={backupInputText}
+                  onChange={(e) => {
+                    setBackupInputText(e.target.value);
+                    setBackupError("");
+                  }}
+                  style={{
+                    width: "100%",
+                    height: "100px",
+                    fontSize: "0.72rem",
+                    fontFamily: "monospace",
+                    background: "rgba(0,0,0,0.2)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: "6px",
+                    color: "var(--color-text-primary)",
+                    padding: "8px",
+                    resize: "vertical",
+                    outline: "none"
+                  }}
+                />
+                {backupError && (
+                  <div style={{ color: "#f87171", fontSize: "0.72rem", marginTop: "0.3rem", fontWeight: "600" }}>
+                    ❌ {backupError}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="btn-primary"
+                  style={{ 
+                    marginTop: "0.5rem", 
+                    width: "100%", 
+                    padding: "0.6rem", 
+                    fontSize: "0.85rem",
+                    background: "var(--color-primary)",
+                    fontWeight: "700"
+                  }}
+                  onClick={() => {
+                    if (!backupInputText.trim()) {
+                      setBackupError("O campo de colagem está vazio.");
+                      return;
+                    }
+                    try {
+                      const parsed = JSON.parse(backupInputText);
+                      if (Array.isArray(parsed)) {
+                        setChildrenList(parsed);
+                        setShowBackupModal(false);
+                        setBackupInputText("");
+                        alert("Dados importados e aplicados com sucesso!");
+                      } else {
+                        setBackupError("Formato inválido. Certifique-se de que colou o conteúdo completo.");
+                      }
+                    } catch (e) {
+                      setBackupError("Erro ao processar dados. O código pode estar incompleto ou corrompido.");
+                    }
+                  }}
+                >
+                  Confirmar e Importar Dados
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
