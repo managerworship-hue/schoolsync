@@ -171,14 +171,11 @@ export default function App() {
 
     // 4. Apenas para os administradores, sincronizamos os perfis padrão (INITIAL_CHILDREN) com o código
     let finalChildren = [...loadedChildren];
-    if (isSpecialUser && finalChildren.length > 0) {
+    if (isSpecialUser) {
       INITIAL_CHILDREN.forEach((initialChild) => {
         const index = finalChildren.findIndex((c) => c.id === initialChild.id);
-        if (index !== -1) {
-          // Atualiza horários e temas dos perfis padrão com a versão mais recente do código
-          finalChildren[index] = initialChild;
-        } else {
-          // Garante que os perfis padrão estão sempre lá
+        if (index === -1) {
+          // Garante que os perfis padrão estão sempre lá se não existirem ainda
           finalChildren.push(initialChild);
         }
       });

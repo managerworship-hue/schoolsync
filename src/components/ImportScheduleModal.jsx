@@ -158,7 +158,11 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
       });
     });
     const total = Object.values(schedule).reduce((s, a) => s + a.length, 0);
-    if (total === 0) { alert("Preencha pelo menos uma aula ou intervalo antes de confirmar."); return; }
+    if (total === 0) {
+      if (!confirm("O horário está totalmente em branco. Deseja guardar o horário vazio?")) {
+        return;
+      }
+    }
     onImportSuccess(activeChild.id, schedule);
     onClose();
   };
