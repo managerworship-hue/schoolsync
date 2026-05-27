@@ -33,7 +33,7 @@ app.post('/api/inovar/extract-schedule', async (req, res) => {
 // Em produção, servir a PWA (Vite build) na mesma porta
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../dist')));
-  app.get('*', (req, res) => {
+  app.use((req, res) => {
     res.sendFile(path.join(__dirname, '../dist/index.html'));
   });
 }
