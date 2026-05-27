@@ -23,27 +23,36 @@
   
   --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-bounce: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  
+  /* Cores de Marca Padrão (Baseadas no Logótipo: Azul e Laranja) */
+  --color-primary: #2563eb; /* Azul Royal */
+  --color-primary-rgb: 37, 99, 235;
+  --color-secondary: #f97316; /* Laranja */
+  --color-gradient-start: #2563eb;
+  --color-gradient-end: #f97316;
+  --theme-glow: rgba(37, 99, 235, 0.2);
+  --theme-avatar-bg: #dbeafe;
 }
 
-/* Temas Dinâmicos por Perfil de Filho */
+/* Temas Dinâmicos por Perfil de Filho (Baseados nas Cores do Logótipo: Azul e Laranja) */
 [data-theme="lucas"] {
-  --color-primary: #06b6d4; /* Ciano */
-  --color-primary-rgb: 6, 182, 212;
-  --color-secondary: #10b981; /* Esmeralda */
-  --color-gradient-start: #0891b2;
-  --color-gradient-end: #059669;
-  --theme-glow: rgba(6, 182, 212, 0.25);
-  --theme-avatar-bg: #e0f7fa;
+  --color-primary: #2563eb; /* Azul Royal do Logótipo */
+  --color-primary-rgb: 37, 99, 235;
+  --color-secondary: #3b82f6; /* Azul Brilhante */
+  --color-gradient-start: #1d4ed8;
+  --color-gradient-end: #3b82f6;
+  --theme-glow: rgba(37, 99, 235, 0.25);
+  --theme-avatar-bg: #dbeafe;
 }
 
 [data-theme="sofia"] {
-  --color-primary: #d946ef; /* Fuchsia */
-  --color-primary-rgb: 217, 70, 239;
-  --color-secondary: #f43f5e; /* Rosa */
-  --color-gradient-start: #c084fc;
-  --color-gradient-end: #e11d48;
-  --theme-glow: rgba(217, 70, 239, 0.25);
-  --theme-avatar-bg: #fce4ec;
+  --color-primary: #f97316; /* Laranja Quente do Logótipo */
+  --color-primary-rgb: 249, 115, 22;
+  --color-secondary: #ff7849; /* Laranja Claro */
+  --color-gradient-start: #ea580c;
+  --color-gradient-end: #fb923c;
+  --theme-glow: rgba(249, 115, 22, 0.25);
+  --theme-avatar-bg: #ffedd5;
 }
 
 /* Reset Geral */
