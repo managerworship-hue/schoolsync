@@ -3,6 +3,7 @@ import ChildSelector from "./components/ChildSelector";
 import ScheduleGrid from "./components/ScheduleGrid";
 import ClassModal from "./components/ClassModal";
 import AuthScreen from "./components/AuthScreen";
+import ImportScheduleModal from "./components/ImportScheduleModal";
 import { INITIAL_CHILDREN } from "./data/schoolData";
 
 export default function App() {
@@ -63,26 +64,32 @@ export default function App() {
       console.error("Erro ao ler dados de filhos no carregamento:", e);
     }
 
-    // 3. Se ainda assim não houver nada, usar os dados padrão (INITIAL_CHILDREN) como template
+    // 3. Se ainda assim não houver nada, definir o estado inicial
     if (!loadedChildren) {
-      loadedChildren = INITIAL_CHILDREN;
+      if (currentUser.email === "l12johnsilva@gmail.com") {
+        loadedChildren = INITIAL_CHILDREN;
+      } else {
+        loadedChildren = []; // Contas novas de outros utilizadores arrancarão em branco
+      }
     }
 
-    // 4. Garantir sincronização dos dados padrão (INITIAL_CHILDREN) com atualizações mais recentes do código
-    const merged = [...loadedChildren];
-    INITIAL_CHILDREN.forEach((initialChild) => {
-      const index = merged.findIndex((c) => c.id === initialChild.id);
-      if (index !== -1) {
-        // Atualiza horários e temas dos perfis padrão
-        merged[index] = initialChild;
-      } else {
-        // Garante que os perfis padrão estão sempre lá
-        merged.push(initialChild);
-      }
-    });
+    // 4. Apenas para o administrador l12johnsilva@gmail.com, sincronizamos os perfis padrão (INITIAL_CHILDREN) com o código
+    let finalChildren = [...loadedChildren];
+    if (currentUser.email === "l12johnsilva@gmail.com" && finalChildren.length > 0) {
+      INITIAL_CHILDREN.forEach((initialChild) => {
+        const index = finalChildren.findIndex((c) => c.id === initialChild.id);
+        if (index !== -1) {
+          // Atualiza horários e temas dos perfis padrão com a versão mais recente do código
+          finalChildren[index] = initialChild;
+        } else {
+          // Garante que os perfis padrão estão sempre lá
+          finalChildren.push(initialChild);
+        }
+      });
+    }
 
-    setChildrenList(merged);
-    setActiveChildId(merged[0]?.id || "");
+    setChildrenList(finalChildren);
+    setActiveChildId(finalChildren[0]?.id || "");
   }, [currentUser]);
 
   // Persistir alterações de filhos na chave específica do utilizador ativo
@@ -146,6 +153,24 @@ export default function App() {
     setActiveChildId(newChild.id);
   };
 
+  // Estado para controlar a exibição do Modal de Importação de Horário
+  const [showImportModal, setShowImportModal] = useState(false);
+
+  // Callback ao importar com sucesso o horário analisado pela IA
+  const handleImportSuccess = (childId, newSchedule) => {
+    setChildrenList((prevList) =>
+      prevList.map((child) => {
+        if (child.id === childId) {
+          return {
+            ...child,
+            schedule: newSchedule
+          };
+        }
+        return child;
+      })
+    );
+  };
+
   // Se não estiver autenticado, exibe o ecrã de Login/Registo
   if (!currentUser) {
     return <AuthScreen onLoginSuccess={handleLoginSuccess} />;
@@ -171,6 +196,7 @@ export default function App() {
             setSelectedClass(classItem);
             setSelectedDayName(dayName);
           }}
+          onOpenImportModal={() => setShowImportModal(true)}
         />
       </div>
 
@@ -180,6 +206,15 @@ export default function App() {
           classItem={selectedClass}
           dayName={selectedDayName}
           onClose={() => setSelectedClass(null)}
+        />
+      )}
+
+      {/* Modal de Importação de Horário via IA (Print/Ficheiro) */}
+      {showImportModal && (
+        <ImportScheduleModal
+          activeChild={activeChild}
+          onClose={() => setShowImportModal(false)}
+          onImportSuccess={handleImportSuccess}
         />
       )}
     </div>

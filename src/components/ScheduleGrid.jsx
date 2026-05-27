@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 
-export default function ScheduleGrid({ activeChild, onSelectClass }) {
+export default function ScheduleGrid({ activeChild, onSelectClass, onOpenImportModal }) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth < 768 : false);
 
@@ -103,6 +103,44 @@ export default function ScheduleGrid({ activeChild, onSelectClass }) {
     );
   }
 
+  // Verifica se o perfil ativo tem um horário em branco/vazio
+  const isEmptySchedule = allTimeSlots.length === 0;
+
+  if (isEmptySchedule) {
+    return (
+      <div className="glass-panel schedule-section animate-fade-in" style={{ padding: "4.5rem 1.5rem", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1.2rem" }}>
+        <span style={{ fontSize: "3.5rem", display: "block", animation: "float 4s ease-in-out infinite" }}>📅</span>
+        <h2 className="gradient-text" style={{ fontSize: "1.5rem", fontWeight: "800", margin: 0 }}>Horário em Branco para {activeChild.name}</h2>
+        <p style={{ color: "var(--color-text-secondary)", fontSize: "0.92rem", maxWidth: "480px", margin: "0 auto", lineHeight: "1.6" }}>
+          Este perfil ainda não tem disciplinas nem horários registados. Pode preenchê-lo instantaneamente enviando um print ou foto do horário escolar!
+        </p>
+        
+        <button 
+          onClick={onOpenImportModal} 
+          className="btn-primary glow-effect" 
+          style={{ 
+            padding: "0.75rem 1.8rem", 
+            fontSize: "0.92rem", 
+            display: "flex", 
+            alignItems: "center", 
+            gap: "0.5rem", 
+            borderRadius: "12px", 
+            border: "none", 
+            cursor: "pointer", 
+            fontWeight: "600",
+            marginTop: "0.5rem"
+          }}
+        >
+          <span>📤</span> Importar Horário (Print / Foto)
+        </button>
+
+        <div style={{ display: "inline-block", padding: "0.5rem 1rem", background: "rgba(255,255,255,0.02)", borderRadius: "8px", border: "1px dashed var(--color-card-border)", fontSize: "0.78rem", color: "var(--color-text-muted)", marginTop: "0.5rem" }}>
+          Digitalização Inteligente via IA • Mapeamento automático de aulas
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="glass-panel schedule-section" style={{ padding: "1.5rem" }}>
       <div className="schedule-header" style={{ marginBottom: isMobile ? "0.5rem" : "1.2rem" }}>
@@ -115,9 +153,34 @@ export default function ScheduleGrid({ activeChild, onSelectClass }) {
           </p>
         </div>
 
-        <div className="current-time-badge">
-          <span className="live-indicator"></span>
-          <span>{formattedTime}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          {/* Botão de Re-importar na cabeceira */}
+          <button
+            onClick={onOpenImportModal}
+            className="btn-import-header"
+            title="Importar Novo Print de Horário"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              background: "rgba(255, 255, 255, 0.03)",
+              border: "1px solid var(--color-card-border)",
+              color: "var(--color-text-primary)",
+              padding: "0.4rem 0.8rem",
+              borderRadius: "8px",
+              fontSize: "0.78rem",
+              fontWeight: "600",
+              cursor: "pointer",
+              transition: "var(--transition-smooth)"
+            }}
+          >
+            <span>📤</span> <span className="import-text-desktop">Importar Print</span>
+          </button>
+
+          <div className="current-time-badge">
+            <span className="live-indicator"></span>
+            <span>{formattedTime}</span>
+          </div>
         </div>
       </div>
 
