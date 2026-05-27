@@ -53,8 +53,45 @@ const emptyGrid = () =>
     cells: { 1: "", 2: "", 3: "", 4: "", 5: "" },
   }));
 
+const loadExistingGrid = (activeChild) => {
+  const schedule = activeChild?.schedule;
+  if (!schedule) return emptyGrid();
+
+  const slotsSet = new Set();
+  [1, 2, 3, 4, 5].forEach((day) => {
+    const dayClasses = schedule[day] || [];
+    dayClasses.forEach((c) => {
+      if (c.time) {
+        slotsSet.add(c.time);
+      }
+    });
+  });
+
+  const uniqueSlots = Array.from(slotsSet).sort((a, b) => {
+    const timeA = a.split(" - ")[0] || "";
+    const timeB = b.split(" - ")[0] || "";
+    return timeA.localeCompare(timeB);
+  });
+
+  if (uniqueSlots.length === 0) {
+    return emptyGrid();
+  }
+
+  return uniqueSlots.map((time) => {
+    const cells = { 1: "", 2: "", 3: "", 4: "", 5: "" };
+    [1, 2, 3, 4, 5].forEach((day) => {
+      const dayClasses = schedule[day] || [];
+      const classAtSlot = dayClasses.find((c) => c.time === time);
+      if (classAtSlot) {
+        cells[day] = classAtSlot.subject;
+      }
+    });
+    return { time, cells };
+  });
+};
+
 export default function ImportScheduleModal({ activeChild, onClose, onImportSuccess }) {
-  const [rows, setRows] = useState(emptyGrid);
+  const [rows, setRows] = useState(() => loadExistingGrid(activeChild));
 
   const cycle = getCycleForYear(activeChild?.grade);
 
@@ -90,15 +127,23 @@ export default function ImportScheduleModal({ activeChild, onClose, onImportSucc
 
   const handleConfirm = () => {
     const schedule = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+    const originalSchedule = activeChild?.schedule || {};
+
     rows.forEach((row) => {
       [1, 2, 3, 4, 5].forEach((day) => {
         const subject = row.cells[day]?.trim();
         if (subject) {
+          const existingClass = (originalSchedule[day] || []).find(
+            (c) => c.time === row.time && c.subject === subject
+          );
+
           schedule[day].push({
-            id: `manual-${day}-${row.time}-${Math.random().toString(36).substr(2, 5)}`,
+            id: existingClass?.id || `manual-${day}-${row.time}-${Math.random().toString(36).substr(2, 5)}`,
             subject,
             time: row.time,
-            room: "", teacher: "", email: "",
+            room: existingClass?.room || "",
+            teacher: existingClass?.teacher || "",
+            email: existingClass?.email || "",
           });
         }
       });
